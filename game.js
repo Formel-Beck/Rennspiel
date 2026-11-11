@@ -1002,14 +1002,17 @@
   $('modeSolo').addEventListener('click', () => { setMode(false); });
   $('modeMP').addEventListener('click', () => { setMode(true); showStep(2); });
   $('mpName').addEventListener('change', () => MP.updateInfo());
-  const invited = MP.init();
-  setMode(invited);
+  const invited = MP.init(); // Raum-Code aus dem Einladungslink (oder null)
+  setMode(!!invited);
 
   // Start: erste Strecke als Menü-Hintergrund laden
   loadTrack(TRACKS[0]);
   placeCarAtStart();
   goToMenu();
-  if (invited) showStep(2);
+  if (invited) { // Mit Einladungslink geöffnet: direkt dem Raum beitreten
+    showStep(2);
+    setTimeout(() => MP.join(invited), 300);
+  }
   $('loading').style.display = 'none';
   requestAnimationFrame(loop);
 

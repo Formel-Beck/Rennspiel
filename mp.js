@@ -43,17 +43,27 @@ window.MP = (() => {
   }
 
   // ---------- Gastgeber ----------
+  let reconnectTimer = null, wakeLock = null;
   function host() {
     leave(true);
     code = randomCode();
     setStatus('Raum wird erstellt …');
+    createHostPeer();
+  }
+  // Meldet den Raum beim Vermittlungsdienst an (auch nach Verbindungsverlust mit demselben Code)
+  function createHostPeer() {
+    try { if (peer) peer.destroy(); } catch (e) {}
     peer = new Peer(PREFIX + code, peerOptions());
     peer.on('open', id => {
+      const first = !api.active;
       api.active = true; api.isHost = true; api.myId = id;
-      api.trackId = api.trackId || TRACKS[0].id;
-      api.players.set(id, Object.assign({ id }, api.getInfo()));
-      setStatus('');
-      startStateLoop();
+      if (first) {
+        api.trackId = api.trackId || TRACKS[0].id;
+        api.players.set(id, Object.assign({ id }, api.getInfo()));
+        startStateLoop();
+      }
+      setNet(true); setStatus('');
+      keepAwake();
       render();
     });
     peer.on('connection', conn => {
@@ -63,10 +73,42 @@ window.MP = (() => {
       conn.on('error', () => dropPlayer(conn.peer));
     });
     peer.on('error', err => {
-      if (err.type === 'unavailable-id') return host(); // Code schon vergeben: neuen nehmen
+      if (err.type === 'unavailable-id') {
+        // Der Code ist noch vom alten Verbindungsversuch reserviert:
+        // Raum besteht schon -> einfach gleich nochmal versuchen. Neuer Raum -> neuen Code nehmen.
+        if (api.active) scheduleReconnect(3000); else { code = randomCode(); createHostPeer(); }
+        return;
+      }
+      if (api.active && ['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'].includes(err.type)) { scheduleReconnect(2500); return; }
+      if (api.active && err.type === 'peer-unavailable') return;
       networkError(err);
     });
-    peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+    peer.on('disconnected', () => { setNet(false); scheduleReconnect(1000); });
+  }
+  function scheduleReconnect(ms) {
+    if (!api.isHost && api.active) return;
+    clearTimeout(reconnectTimer);
+    setNet(false);
+    reconnectTimer = setTimeout(() => {
+      if (!code || !api.isHost) return;
+      if (peer && !peer.destroyed && peer.disconnected) { try { peer.reconnect(); } catch (e) { createHostPeer(); } }
+      else if (!peer || peer.destroyed) createHostPeer();
+    }, ms + (api._testDelay || 0));
+  }
+  // Kommt der Gastgeber zurück in die App (z.B. nach WhatsApp), sofort wieder anmelden
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !api.active) return;
+    if (api.isHost && peer && (peer.disconnected || peer.destroyed)) scheduleReconnect(0);
+    keepAwake();
+  });
+  // Bildschirm nicht ausgehen lassen, solange man in einem Raum ist
+  async function keepAwake() {
+    try { if (navigator.wakeLock && !wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {}
+  }
+  function setNet(ok) {
+    const el = $('mpNet'); if (!el) return;
+    el.textContent = ok ? (api.isHost ? '🟢 Raum ist online – Freunde können beitreten' : '🟢 Verbunden') : '🟠 Verbindung wird wiederhergestellt …';
+    el.classList.toggle('warn', !ok);
   }
 
   function hostReceive(conn, d) {
@@ -118,31 +160,52 @@ window.MP = (() => {
   }
 
   // ---------- Mitspieler ----------
+  const JOIN_TRIES = 6;
   function join(raw) {
     const c = (raw || '').trim().toUpperCase();
     if (c.length !== 4) { setStatus('Der Code hat 4 Zeichen.', true); return; }
     leave(true);
     code = c;
-    setStatus('Verbinde mit Raum ' + code + ' …');
+    let tries = 0, attemptTimer = null;
+    const joinCode = c;
+    setStatus('Verbinde …');
     peer = new Peer(undefined, peerOptions());
-    peer.on('open', id => {
-      api.myId = id;
-      hostConn = peer.connect(PREFIX + code, { reliable: true });
-      const timeout = setTimeout(() => { if (!api.active) { setStatus('Raum ' + code + ' nicht gefunden. Stimmt der Code?', true); leave(true); } }, 9000);
-      hostConn.on('open', () => {
-        clearTimeout(timeout);
+
+    function fail(msg) { clearTimeout(attemptTimer); setStatus(msg, true); leave(true); }
+    function retryOrFail() {
+      clearTimeout(attemptTimer);
+      if (api.active || code !== joinCode) return;
+      if (tries < JOIN_TRIES) setTimeout(attempt, 2500);
+      else fail('Raum ' + joinCode + ' nicht gefunden. Stimmt der Code, und ist der Gastgeber noch im Spiel (nicht in WhatsApp oder im Sperrbildschirm)?');
+    }
+    function attempt() {
+      if (api.active || code !== joinCode || !peer || peer.destroyed) return;
+      tries++;
+      setStatus('Suche Raum ' + joinCode + ' … ' + (tries > 1 ? '(Versuch ' + tries + ' von ' + JOIN_TRIES + ')' : ''));
+      try { if (hostConn) hostConn.close(); } catch (e) {}
+      const conn = peer.connect(PREFIX + joinCode, { reliable: true });
+      hostConn = conn;
+      // Verbindungsaufbau über mobile Daten kann dauern – 15 Sekunden pro Versuch
+      attemptTimer = setTimeout(() => { if (!api.active && hostConn === conn) { try { conn.close(); } catch (e) {} retryOrFail(); } }, 15000);
+      conn.on('open', () => {
+        if (hostConn !== conn) return;
+        clearTimeout(attemptTimer);
         api.active = true; api.isHost = false;
-        hostConn.send(Object.assign({ t: 'hello' }, api.getInfo()));
+        conn.send(Object.assign({ t: 'hello' }, api.getInfo()));
         startStateLoop();
-        setStatus('');
+        setStatus(''); setNet(true); keepAwake();
       });
-      hostConn.on('data', clientReceive);
-      hostConn.on('close', () => { if (api.active) networkError({ type: 'host-left' }); });
-    });
+      conn.on('data', d => { if (hostConn === conn) clientReceive(d); });
+      conn.on('close', () => { if (hostConn === conn && api.active) networkError({ type: 'host-left' }); });
+    }
+    peer.on('open', id => { api.myId = id; attempt(); });
     peer.on('error', err => {
-      if (err.type === 'peer-unavailable') { setStatus('Raum ' + code + ' nicht gefunden. Stimmt der Code?', true); leave(true); return; }
-      networkError(err);
+      if (err.type === 'peer-unavailable') { retryOrFail(); return; }
+      if (!api.active && ['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) { fail('Keine Verbindung zum Vermittlungsdienst. Bist du online?'); return; }
+      if (api.active && err.type !== 'disconnected') return; // Verbindung zum Gastgeber steht schon – Vermittlungsdienst egal
+      if (!api.active) networkError(err);
     });
+    peer.on('disconnected', () => { if (!api.active) { try { peer.reconnect(); } catch (e) {} } });
   }
 
   function clientReceive(d) {
@@ -224,7 +287,8 @@ window.MP = (() => {
   }
 
   function leave(silent) {
-    clearInterval(stateTimer);
+    clearInterval(stateTimer); clearTimeout(reconnectTimer);
+    try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null;
     try { if (hostConn) hostConn.close(); } catch (e) {}
     for (const c of conns.values()) { try { c.close(); } catch (e) {} }
     try { if (peer) peer.destroy(); } catch (e) {}
@@ -293,16 +357,17 @@ window.MP = (() => {
     $('mpLeave').addEventListener('click', () => leave());
     $('mpInvite').addEventListener('click', invite);
     $('mpStart').addEventListener('click', startRace);
-    const raum = new URLSearchParams(location.search).get('raum');
-    if (raum) $('mpJoinCode').value = raum.toUpperCase();
+    const raum = (new URLSearchParams(location.search).get('raum') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    if (raum) $('mpJoinCode').value = raum;
     if (typeof Peer === 'undefined') setStatus('Mehrspieler braucht eine Internetverbindung beim ersten Start.', true);
     render();
-    return !!raum;
+    return raum.length === 4 ? raum : null;
   }
   function myName() {
     const n = ($('mpName').value || '').trim().slice(0, 16);
     return n;
   }
 
+  api._peer = () => peer; // nur für Tests
   return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, updateInfo, render, myName });
 })();
