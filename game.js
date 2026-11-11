@@ -569,7 +569,39 @@
       grid.appendChild(card);
     }
   }
+  // Am Handy: Vollbild und Querformat beim Start eines Rennens
+  function goFullscreen() {
+    if (!MOBILE || document.fullscreenElement || isInstalled()) return;
+    const el = document.documentElement;
+    try {
+      const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : null;
+      if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+    } catch (e) {}
+  }
+  function isInstalled() {
+    return window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  }
+
+  // "Als App installieren": Android/Chrome zeigt einen Knopf, iPhone eine Anleitung
+  let installEvent = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); installEvent = e;
+    $('installBox').style.display = 'block'; $('installBtn').style.display = ''; $('iosHint').style.display = 'none';
+  });
+  $('installBtn').addEventListener('click', async () => {
+    if (!installEvent) return;
+    installEvent.prompt();
+    try { await installEvent.userChoice; } catch (e) {}
+    installEvent = null; $('installBox').style.display = 'none';
+  });
+  window.addEventListener('appinstalled', () => { $('installBox').style.display = 'none'; });
+  const IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (IOS && !isInstalled() && location.protocol === 'https:' && window.top === window) {
+    $('installBox').style.display = 'block'; $('installBtn').style.display = 'none'; $('iosHint').style.display = 'block';
+  }
+
   function chooseTrack(t) {
+    goFullscreen();
     $('loading').style.display = 'flex';
     $('loading').textContent = 'Lade ' + t.name + ' …';
     setTimeout(() => {

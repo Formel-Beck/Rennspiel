@@ -2,7 +2,15 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1424">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rennspiel">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Rennspiel</title>
 <style>
   * { box-sizing: border-box; }
@@ -14,7 +22,7 @@
 
   /* Menü */
   #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; overflow-y: auto; touch-action: pan-y;
-    background: linear-gradient(180deg, rgba(8,12,28,.55) 0%, rgba(8,12,28,.25) 35%, rgba(8,12,28,.75) 100%); padding: 24px 16px 40px; }
+    background: linear-gradient(180deg, rgba(8,12,28,.55) 0%, rgba(8,12,28,.25) 35%, rgba(8,12,28,.75) 100%); padding: calc(24px + var(--st)) calc(16px + var(--sr)) 40px calc(16px + var(--sl)); }
   #menu h1 { margin: 8px 0 2px; font-size: clamp(36px, 8vw, 68px); font-weight: 900; letter-spacing: .04em; font-style: italic;
     background: linear-gradient(90deg, #ffd54a, #ff7043, #ff2bd6); -webkit-background-clip: text; background-clip: text; color: transparent;
     filter: drop-shadow(0 4px 12px rgba(0,0,0,.5)); }
@@ -40,6 +48,9 @@
   .char.sel { border-color: #ffd54a; box-shadow: 0 0 0 2px #ffd54a, 0 6px 18px rgba(0,0,0,.4); transform: scale(1.04); }
   .char:hover { transform: scale(1.04); }
   @media (max-height: 500px) { #menu { padding-top: 8px; } #menu h1 { font-size: 30px; margin: 0; } .step { margin: 10px 0 8px; font-size: 16px; } }
+  #installBox { margin-top: 10px; text-align: center; font-size: 14px; }
+  #installBtn { border: 0; border-radius: 12px; padding: 10px 16px; font-size: 15px; font-weight: 800; color: #fff; background: linear-gradient(90deg, #ff7043, #ff2bd6); }
+  #iosHint { display: none; background: rgba(0,0,0,.5); border-radius: 12px; padding: 8px 12px; max-width: 460px; }
   #trackGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; width: 100%; max-width: 1050px; }
   .card { border: 2px solid rgba(255,255,255,.25); border-radius: 18px; padding: 0; overflow: hidden; color: #fff; text-align: left;
     display: flex; flex-direction: column; min-height: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.35); transition: transform .12s, border-color .12s; }
@@ -53,22 +64,23 @@
   .crec { font-size: 13px; margin-top: 6px; opacity: .95; }
 
   /* Rennen */
-  #hud { top: 10px; left: 10px; font-variant-numeric: tabular-nums; line-height: 1.5; font-size: 15px; }
+  :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); }
+  #hud { top: calc(10px + var(--st)); left: calc(10px + var(--sl)); font-variant-numeric: tabular-nums; line-height: 1.5; font-size: 15px; }
   #hud span.l { display: inline-block; min-width: 108px; color: #ffd54a; font-weight: 600; }
   #help { top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .85; white-space: nowrap; }
   #help kbd { background: rgba(255,255,255,.2); border-radius: 4px; padding: 0 5px; font-family: inherit; }
-  #topBtns { position: fixed; top: 10px; right: 10px; display: flex; gap: 8px; }
+  #topBtns { position: fixed; top: calc(10px + var(--st)); right: calc(10px + var(--sr)); display: flex; gap: 8px; }
   .round { width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; }
-  #mini { position: fixed; right: 10px; bottom: 10px; background: rgba(0,0,0,.4); border-radius: 12px; }
+  #mini { position: fixed; right: calc(10px + var(--sr)); bottom: calc(10px + var(--sb)); background: rgba(0,0,0,.4); border-radius: 12px; }
   #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 20px;
     font-size: clamp(40px, 10vw, 110px); font-weight: 900; font-style: italic; text-shadow: 0 4px 18px rgba(0,0,0,.6); pointer-events: none; }
-  #touch { position: fixed; bottom: 16px; left: 0; right: 0; display: none; justify-content: space-between; padding: 0 16px; pointer-events: none; }
+  #touch { position: fixed; bottom: calc(16px + var(--sb)); left: 0; right: 0; display: none; justify-content: space-between; padding: 0 calc(16px + var(--sr)) 0 calc(16px + var(--sl)); pointer-events: none; }
   #touch.show { display: flex; }
   .grp { display: flex; gap: 14px; }
   .btn { pointer-events: auto; width: 78px; height: 78px; border-radius: 50%; background: rgba(255,255,255,.2);
     border: 2px solid rgba(255,255,255,.5); font-size: 30px; display: flex; align-items: center; justify-content: center; color: #fff; }
   .btn.on { background: rgba(255,213,74,.6); }
-  @media (pointer: coarse) { #mini { top: 64px; bottom: auto; } #hud { font-size: 13px; padding: 8px 10px; } #hud span.l { min-width: 92px; } }
+  @media (pointer: coarse) { #mini { top: calc(64px + var(--st)); bottom: auto; } #hud { font-size: 13px; padding: 8px 10px; } #hud span.l { min-width: 92px; } }
 
   /* Overlays */
   .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,8,20,.6); backdrop-filter: blur(3px); }
@@ -81,15 +93,36 @@
   #surface.warn { color: #ff6b6b; font-weight: 800; }
   .bestlap { color: #ffd54a; font-weight: 700; }
   .badge { background: #ffd54a; color: #222; border-radius: 6px; padding: 1px 6px; font-size: .6em; font-weight: 800; vertical-align: middle; font-style: normal; }
-  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0d1424; font-size: 22px; font-weight: 700; z-index: 10; }
+  #loading small { display: block; font-size: 14px; font-weight: 400; opacity: .85; margin-top: 10px; word-break: break-all; }
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; text-align: center; padding: 20px; align-items: center; justify-content: center; background: #0d1424; font-size: 22px; font-weight: 700; z-index: 10; }
   #rotateHint { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); display: none; background: rgba(0,0,0,.6); padding: 8px 12px; border-radius: 10px; font-size: 13px; }
 </style>
 </head>
 <body>
 <div id="loading">Lade 3D …</div>
+<script>
+  // Fehleranzeige: zeigt auf dem Ladebildschirm, was nicht klappt
+  (function () {
+    function show(html) { var el = document.getElementById('loading'); if (el && el.style.display !== 'none') el.innerHTML = html; }
+    window.addEventListener('error', function (e) {
+      var t = e.target, src = t && (t.src || t.href);
+      if (src) show('Datei fehlt:<small>' + src.replace(location.origin, '') + '</small><small>Lade diese Datei auf GitHub hoch (direkt neben index.html).</small>');
+      else show('Fehler beim Starten:<small>' + (e.message || 'unbekannt') + '</small><small>' + ((e.filename || '').split('/').pop()) + ' Zeile ' + (e.lineno || '?') + '</small>');
+    }, true);
+    setTimeout(function () {
+      var el = document.getElementById('loading');
+      if (el && el.style.display !== 'none' && /Lade 3D/.test(el.textContent))
+        show('Das Spiel startet nicht.<small>Fehlen Dateien? Auf GitHub müssen alle 20 Dateien direkt neben index.html liegen.</small>');
+    }, 12000);
+  })();
+</script>
 
 <div id="menu">
   <h1>RENNSPIEL</h1>
+  <div id="installBox" style="display:none">
+    <button id="installBtn">📲 Als App installieren</button>
+    <div id="iosHint">📲 <b>Als App installieren:</b> unten auf <b>Teilen</b> tippen und dann <b>„Zum Home-Bildschirm“</b>.</div>
+  </div>
   <div class="step">1 · Wähle deinen Fahrer</div>
   <div id="charPanel">
     <div id="charDetail">
@@ -154,16 +187,22 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="js/data/themes.js"></script>
-<script src="js/data/tracks.js"></script>
-<script src="js/data/cars.js"></script>
-<script src="js/data/characters.js"></script>
-<script src="js/data/surfaces.js"></script>
-<script src="js/props.js"></script>
-<script src="js/world.js"></script>
-<script src="js/drivers.js"></script>
-<script src="js/car.js"></script>
-<script src="js/game.js"></script>
+<script src="three.min.js"></script>
+<script src="themes.js"></script>
+<script src="tracks.js"></script>
+<script src="cars.js"></script>
+<script src="characters.js"></script>
+<script src="surfaces.js"></script>
+<script src="props.js"></script>
+<script src="world.js"></script>
+<script src="drivers.js"></script>
+<script src="car.js"></script>
+<script src="game.js"></script>
+<script>
+  // Offline-Modus einschalten (klappt nur auf einer eigenen Webadresse, z.B. GitHub Pages)
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
 </body>
 </html>
