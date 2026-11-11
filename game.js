@@ -45,10 +45,15 @@
   headlight.target.position.set(20, -1, 0);
   carModel.group.add(headlight, headlight.target);
 
+  // Einstellbare Werte (der Entwicklermodus ändert sie)
+  const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
+  const RACE = { laps: 0 }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
+  const lapsNeeded = () => RACE.laps || track.laps;
+
   // Fahrwerte = Auto × Fahrer
   let perf = {};
   function computePerf() {
-    const st = char.stats;
+    const st = PHYS.ignoreStats ? { top: 1, accel: 1, handling: 1, grip: 1, offroad: 1 } : char.stats;
     perf = { maxSpeed: carCfg.maxSpeed * st.top, accel: carCfg.accel * st.accel, brake: carCfg.brake,
              handling: carCfg.handling * st.handling, grip: st.grip, offroad: st.offroad };
   }
@@ -180,7 +185,7 @@
     if (!audio) return;
     // Motor nur während Countdown und Rennen – im Ziel geht er aus
     const active = !muted && !document.hidden && (phase === 'race' || phase === 'countdown');
-    audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active, car.slip, Math.sin(car.pitch));
+    audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active && SOUND.engineVol > 0, car.slip, Math.sin(car.pitch), SOUND.engineVol);
   }
   // App verlassen oder Bildschirm aus: alle Töne sofort anhalten
   function suspendAudio() { if (audio) try { audio.ctx.suspend(); } catch (e) {} }
@@ -222,7 +227,7 @@
 
   // ---------- Kamera ----------
   const camModes = [
-    { name: 'Verfolger', back: 8, up: 3.3, look: 4, lookUp: 1.4 },
+    { name: 'Verfolger', back: 8, up: 3.3, look: 4, lookUp: 1.4, fov: 65 },
     { name: 'Weit', back: 17, up: 7.5, look: 6, lookUp: 0.5 },
     { name: 'Motorhaube', fixed: true }
   ];
@@ -343,18 +348,18 @@
     // Steigung: bergauf langsamer, bergab schneller
     const slope = Math.sin(car.pitch);
     const off = sf.topAbs ? perf.offroad : 1; // Gelände-Talent des Fahrers
-    const top = (sf.topAbs ? sf.topAbs * off : perf.maxSpeed * sf.top) * clamp(1 - 2 * slope, 0.6, 1.3);
-    const grip = Math.min(1.2, sf.grip * perf.grip);
+    const top = (sf.topAbs ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * sf.top) * clamp(1 - 2 * slope, 0.6, 1.3);
+    const grip = Math.min(1.2, sf.grip * perf.grip) * PHYS.gripAll;
 
     if (input.up) { if (vF < top) vF += perf.accel * Math.min(1, sf.accel * off) * dt; }
     else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
     else { const fr = 14 * dt; vF = Math.abs(vF) < fr ? 0 : vF - Math.sign(vF) * fr; }
-    vF -= 9.81 * slope * 0.8 * dt;                       // Schwerkraft
+    vF -= 9.81 * slope * PHYS.gravity * dt;                 // Schwerkraft
     if (vF > top) vF = Math.max(top, vF - sf.drag / off * dt); // zu schnell für den Untergrund
     if (vF < -15) vF = -15;
 
     // Seitliches Rutschen wird je nach Grip abgebaut
-    vS *= Math.exp(-grip * 20 * dt);
+    vS *= Math.exp(-grip * PHYS.slide * dt);
 
     car.vx = fx * vF + sx * vS;
     car.vz = fz * vF + sz * vS;
@@ -374,13 +379,13 @@
 
     // Zusammenstösse mit Bäumen, Häusern, Felsen … (zwei Kreise: vorne und hinten am Auto)
     let bump = 0, bx = 0, bz = 0;
-    for (const o of [1.25, -1.25]) {
+    for (const o of PHYS.collisions ? [1.25, -1.25] : []) {
       const push = world.collide(car.x + fx * o, car.z + fz * o, 1.05);
       if (!push) continue;
       car.x += push.x; car.z += push.z;
       const L = Math.hypot(push.x, push.z) || 1, nx = push.x / L, nz = push.z / L;
       const vn = car.vx * nx + car.vz * nz;
-      if (vn < 0) { car.vx -= 1.3 * vn * nx; car.vz -= 1.3 * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x + fx * o - nx; bz = car.z + fz * o - nz; } }
+      if (vn < 0) { car.vx -= PHYS.bounce * vn * nx; car.vz -= PHYS.bounce * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x + fx * o - nx; bz = car.z + fz * o - nz; } }
       car.vx *= 0.97; car.vz *= 0.97;
     }
     if (bump > 3) {
@@ -460,10 +465,10 @@
       if (fwd && halfway) {
         const t = gameTime - lapStart;
         lapTimes.push(t); lapStart = gameTime; halfway = false;
-        if (lapTimes.length >= track.laps) finishRace();
+        if (lapTimes.length >= lapsNeeded()) finishRace();
         else {
           lap++;
-          flash(lap === track.laps ? 'Letzte Runde!' : 'Runde ' + lap, 1.2);
+          flash(lap === lapsNeeded() ? 'Letzte Runde!' : 'Runde ' + lap, 1.2);
           beep(660, 0.2);
         }
       }
@@ -500,7 +505,7 @@
 
   // ---------- Anzeige ----------
   function updateHud() {
-    $('lap').textContent = Math.min(lap, track.laps) + ' / ' + track.laps;
+    $('lap').textContent = Math.min(lap, lapsNeeded()) + ' / ' + lapsNeeded();
     const racing = phase === 'race' || (phase === 'paused' && pausedFrom === 'race');
     $('time').textContent = fmt(racing ? gameTime - raceStart : phase === 'finished' ? lastResult.total : 0);
     $('laptime').textContent = fmt(racing ? gameTime - lapStart : 0);
@@ -692,7 +697,43 @@
     renderer.render(world.scene, camera);
     if (phase !== 'menu') { updateHud(); drawMinimap(); }
     updateEngine(dt);
+    updateDebug(dt);
     requestAnimationFrame(loop);
+  }
+
+  // ---------- Entwicklermodus ----------
+  DevMode.init({
+    targets: { car: carCfg, phys: PHYS, cam: camModes[0], surf: SURFACES, race: RACE, sound: SOUND, debug: DEBUG },
+    onChange(path) {
+      if (path.startsWith('car.') || path === 'phys.ignoreStats') computePerf();
+      if (path === 'cam.fov') { camera.fov = camModes[0].fov; camera.updateProjectionMatrix(); }
+      if (path.startsWith('debug.')) $('debug').style.display = DEBUG.fps || DEBUG.info ? 'block' : 'none';
+    }
+  });
+  $('devBtn').addEventListener('click', () => DevMode.open());
+  $('devBtn2').addEventListener('click', () => DevMode.open());
+  $('devClose').addEventListener('click', () => DevMode.close());
+  $('devReset').addEventListener('click', () => DevMode.reset());
+  $('devCopy').addEventListener('click', () => DevMode.copy());
+
+  // Technik-Anzeige (FPS, Gang, Drehzahl …)
+  let fpsFrames = 0, fpsTime = 0, fpsValue = 0, dbgTimer = 0;
+  function updateDebug(dt) {
+    fpsFrames++; fpsTime += dt;
+    if (fpsTime >= 0.5) { fpsValue = Math.round(fpsFrames / fpsTime); fpsFrames = 0; fpsTime = 0; }
+    if (!(DEBUG.fps || DEBUG.info) || (dbgTimer += dt) < 0.2) return;
+    dbgTimer = 0;
+    let h = DEBUG.fps ? `<b>${fpsValue} FPS</b>` : '';
+    if (DEBUG.info && world) {
+      const es = audio && audio.engine.state ? audio.engine.state() : null;
+      const r = world.roadInfo(car.x, car.z);
+      h += `<br>Tempo ${car.speed.toFixed(1)} m/s · Rutschen ${car.slip.toFixed(1)} m/s` +
+        `<br>Belag ${surface.name.replace('!', '')} (Grip ${(surface.grip * perf.grip * PHYS.gripAll).toFixed(2)})` +
+        (es ? `<br>Gang ${es.gear} · Drehzahl ${Math.round(es.rpm * 7000)}` : '') +
+        `<br>Steigung ${(Math.sin(car.pitch) * 100).toFixed(0)} % · Runde ${(r.index / world.N * 100).toFixed(0)} %` +
+        `<br>Position ${car.x.toFixed(0)} / ${car.z.toFixed(0)}`;
+    }
+    $('debug').innerHTML = h;
   }
 
   // Start: erste Strecke als Menü-Hintergrund laden

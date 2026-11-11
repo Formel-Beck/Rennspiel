@@ -55,7 +55,7 @@ window.EngineSound = function (ctx, out) {
 
   // speed/maxSpeed = Tempo, throttle = Gas (0/1), active = hörbar?
   // slip = seitliches Rutschen (m/s), slope = Steigung (-1 bis 1)
-  function update(dt, speed, maxSpeed, throttle, active, slip, slope) {
+  function update(dt, speed, maxSpeed, throttle, active, slip, slope, volume) {
     const sf = Math.min(1.1, Math.abs(speed) / maxSpeed);
     // Schalten (mit Abstand zwischen hoch und runter, damit er nicht hin und her springt)
     if (shiftT <= 0) {
@@ -83,7 +83,7 @@ window.EngineSound = function (ctx, out) {
     sub.frequency.setTargetAtTime(BASE * rate * 0.5, now, 0.03);
     filter.frequency.setTargetAtTime(320 + rpm * 1700 + (shifting ? 0 : throttle * (900 + load * 600)), now, 0.04);
     const vol = shifting ? 0.07 : 0.09 + rpm * 0.06 + throttle * 0.05 + load * 0.02;
-    master.gain.setTargetAtTime(active ? vol : 0, now, active ? 0.04 : 0.3);
+    master.gain.setTargetAtTime(active ? vol * (volume == null ? 1 : volume) : 0, now, active ? 0.04 : 0.3);
   }
   // Für Tests: Gang und Drehzahl ablesen
   function state() { return { gear: gear + 1, rpm }; }

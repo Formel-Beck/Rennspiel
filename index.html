@@ -91,6 +91,24 @@
   #resTotal { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 4px 0 10px; }
   #resLaps { font-variant-numeric: tabular-nums; line-height: 1.7; opacity: .9; }
   #surface.warn { color: #ff6b6b; font-weight: 800; }
+  .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
+  #devPanel { z-index: 20; align-items: stretch; }
+  .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
+    padding: calc(14px + var(--st)) calc(16px + var(--sr)) calc(16px + var(--sb)) calc(16px + var(--sl)); }
+  .devhead { display: flex; align-items: center; justify-content: space-between; }
+  .devhead h2 { margin: 0; font-size: 22px; }
+  .devhint { font-size: 12px; opacity: .75; margin: 4px 0 6px; }
+  .devsec h3 { margin: 14px 0 6px; font-size: 15px; color: #ffd54a; }
+  .devrow { display: flex; flex-direction: column; gap: 4px; padding: 7px 10px; border-radius: 10px; background: rgba(255,255,255,.05); margin-bottom: 6px; font-size: 13px; }
+  .devrow:has(input[type=checkbox]) { flex-direction: row; justify-content: space-between; align-items: center; }
+  .devrow b { float: right; font-variant-numeric: tabular-nums; }
+  .devrow.changed { background: rgba(255,213,74,.16); box-shadow: inset 3px 0 0 #ffd54a; }
+  .devrow input[type=range] { width: 100%; accent-color: #ff7043; touch-action: pan-x; height: 26px; }
+  .devrow input[type=checkbox] { width: 22px; height: 22px; accent-color: #ff7043; }
+  .devfoot { margin-top: 8px; }
+  #devOut { display: none; width: 100%; height: 120px; margin-top: 10px; background: #0b0f1d; color: #fff; border-radius: 8px; border: 1px solid #333; font-family: monospace; font-size: 12px; }
+  #debug { position: fixed; left: 50%; transform: translateX(-50%); top: calc(54px + var(--st)); display: none; background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 8px;
+    font: 12px/1.45 ui-monospace, monospace; text-align: center; pointer-events: none; z-index: 5; }
   .bestlap { color: #ffd54a; font-weight: 700; }
   .badge { background: #ffd54a; color: #222; border-radius: 6px; padding: 1px 6px; font-size: .6em; font-weight: 800; vertical-align: middle; font-style: normal; }
   #loading small { display: block; font-size: 14px; font-weight: 400; opacity: .85; margin-top: 10px; word-break: break-all; }
@@ -139,6 +157,7 @@
   </div>
   <div class="step">2 · Wähle eine Strecke</div>
   <div id="trackGrid"></div>
+  <button id="devBtn" class="devOpen">🛠 Entwicklermodus<span class="devBadge"></span></button>
 </div>
 
 <div id="hud" class="panel" style="display:none">
@@ -173,8 +192,23 @@
     <button class="big primary" id="resumeBtn">Weiterfahren</button>
     <button class="big" id="restartBtn">Neustart</button>
     <button class="big" id="menuBtn">Strecke wählen</button>
+    <button class="big" id="devBtn2">🛠 Entwicklermodus<span class="devBadge"></span></button>
   </div>
 </div>
+
+<div id="devPanel" class="overlay">
+  <div class="devbox">
+    <div class="devhead"><h2>🛠 Entwicklermodus</h2><button class="round" id="devClose" title="Schliessen">✕</button></div>
+    <div class="devhint">Änderungen wirken sofort und bleiben gespeichert. Gelb = geändert.</div>
+    <div id="devBody"></div>
+    <div class="devfoot">
+      <button class="big" id="devCopy">📋 Geänderte Werte kopieren</button>
+      <button class="big" id="devReset">↺ Alles zurücksetzen</button>
+      <textarea id="devOut" readonly></textarea>
+    </div>
+  </div>
+</div>
+<div id="debug"></div>
 
 <div id="results" class="overlay">
   <div class="box">
@@ -198,6 +232,7 @@
 <script src="drivers.js"></script>
 <script src="engine.js"></script>
 <script src="car.js"></script>
+<script src="devmode.js"></script>
 <script src="game.js"></script>
 <script>
   // Offline-Modus einschalten (klappt nur auf einer eigenen Webadresse, z.B. GitHub Pages)
