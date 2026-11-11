@@ -155,7 +155,8 @@ window.Props = (() => {
   };
 
   // ---------- Kulisse am Horizont ----------
-  function ring(rnd, count, rMin, rMax, filter) {
+  function ring(rnd, count, rMin, rMax, filter, scale) {
+    scale = scale || 1; rMin *= scale; rMax *= scale; count = Math.round(count * Math.min(scale, 1.6));
     const out = [];
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + rnd() * 0.2, r = rMin + rnd() * (rMax - rMin);
@@ -165,16 +166,17 @@ window.Props = (() => {
     return out;
   }
 
-  function backdrop(type, theme, rnd) {
+  function backdrop(type, theme, rnd, scale) {
+    scale = scale || 1;
     const meshes = [];
     if (type === 'hills' || type === 'sea') {
-      const pts = ring(rnd, 34, 330, 430, type === 'sea' ? (x, z) => z < 20 : null);
+      const pts = ring(rnd, 34, 330, 430, type === 'sea' ? (x, z) => z < 20 : null, scale);
       const items = pts.map(p => { const s = 50 + rnd() * 50; return { geo: I(1, 1), x: p.x, y: -6, z: p.z, sx: s * 1.4, sy: 22 + rnd() * 30, sz: s }; });
       meshes.push(new THREE.Mesh(merge(items), M(theme.groundVar)));
     }
     if (type === 'peaks') {
       const rock = [], snow = [], f = 0.32;
-      for (const p of ring(rnd, 26, 340, 440)) {
+      for (const p of ring(rnd, 26, 340, 440, null, scale)) {
         const R = 55 + rnd() * 45, H = 90 + rnd() * 90, ry = rnd() * 3;
         rock.push({ geo: K(1, 1, 6), x: p.x, y: H / 2 - 12, z: p.z, sx: R, sy: H, sz: R, ry });
         snow.push({ geo: K(1, 1, 6), x: p.x, y: H - 12 - H * f / 2 + 0.5, z: p.z, sx: R * f * 1.04, sy: H * f, sz: R * f * 1.04, ry });
@@ -182,7 +184,7 @@ window.Props = (() => {
       meshes.push(new THREE.Mesh(merge(rock), M('#7d8590')), new THREE.Mesh(merge(snow), M('#ffffff')));
     }
     if (type === 'mesas') {
-      const items = ring(rnd, 20, 330, 430).map(p => {
+      const items = ring(rnd, 20, 330, 430, null, scale).map(p => {
         const R = 30 + rnd() * 30, H = 25 + rnd() * 30;
         return { geo: C(1, 1.15, 1, 7), x: p.x, y: H / 2 - 4, z: p.z, sx: R, sy: H, sz: R, ry: rnd() * 3 };
       });
@@ -194,7 +196,7 @@ window.Props = (() => {
       base.needsUpdate = lit.needsUpdate = true;
       base.repeat.set(2, 6); lit.repeat.set(2, 6);
       const mat = new THREE.MeshPhongMaterial({ color: '#4a5070', map: base, emissive: '#ffcc77', emissiveMap: lit, emissiveIntensity: 0.8 });
-      const pts = ring(rnd, 80, 290, 420);
+      const pts = ring(rnd, 80, 290, 420, null, scale);
       const geo = new THREE.BoxGeometry(1, 1, 1); geo.translate(0, 0.5, 0);
       const mesh = new THREE.InstancedMesh(geo, mat, pts.length);
       const d = new THREE.Object3D();

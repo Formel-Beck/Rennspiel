@@ -20,7 +20,7 @@
   const Q = {
     shadows: true,
     shadowMap: MOBILE ? 1024 : 2048,
-    terrainSeg: MOBILE ? [104, 80] : [140, 108],
+    terrainRes: MOBILE ? 4.8 : 3.8, // Meter pro Gelände-Kästchen
     propScale: MOBILE ? 0.7 : 1,
     snowCount: MOBILE ? 900 : 1800,
     aniso: Math.min(8, renderer.capabilities.getMaxAnisotropy())
@@ -166,11 +166,7 @@
     try {
       if (audio) { audio.ctx.resume(); return; }
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 50;
-      const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 700;
-      const gain = ctx.createGain(); gain.gain.value = 0;
-      osc.connect(filt).connect(gain).connect(ctx.destination); osc.start();
-      audio = { ctx, osc, gain };
+      audio = { ctx, engine: EngineSound(ctx, ctx.destination) };
     } catch (e) { audio = null; }
   }
   function beep(freq, dur) {
@@ -180,12 +176,35 @@
     g.gain.setValueAtTime(0.08, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
     o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + dur);
   }
-  function updateEngine() {
+  function updateEngine(dt) {
     if (!audio) return;
-    const t = audio.ctx.currentTime;
-    const active = !muted && (phase === 'race' || phase === 'countdown' || phase === 'finished');
-    audio.gain.gain.setTargetAtTime(active ? 0.045 : 0, t, 0.08);
-    audio.osc.frequency.setTargetAtTime(48 + Math.abs(car.speed) * 2.3, t, 0.05);
+    // Motor nur während Countdown und Rennen – im Ziel geht er aus
+    const active = !muted && !document.hidden && (phase === 'race' || phase === 'countdown');
+    audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active);
+  }
+  // App verlassen oder Bildschirm aus: alle Töne sofort anhalten
+  function suspendAudio() { if (audio) try { audio.ctx.suspend(); } catch (e) {} }
+  document.addEventListener('visibilitychange', () => {
+    if (!audio) return;
+    if (document.hidden) suspendAudio(); else try { audio.ctx.resume(); } catch (e) {}
+  });
+  window.addEventListener('pagehide', suspendAudio);
+
+  // Crash-Geräusch
+  let lastCrash = 0;
+  function crashSound(strength) {
+    if (!audio || muted || performance.now() - lastCrash < 250) return;
+    lastCrash = performance.now();
+    const ctx = audio.ctx, t = ctx.currentTime, dur = 0.35;
+    const b = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = 'lowpass'; f.frequency.value = 500 + strength * 40; g.gain.value = Math.min(0.5, 0.12 + strength * 0.02);
+    src.connect(f).connect(g).connect(ctx.destination); src.start(t);
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+    og.gain.setValueAtTime(Math.min(0.5, strength * 0.03), t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(og).connect(ctx.destination); o.start(t); o.stop(t + 0.3);
   }
   let lastHonk = 0;
   function honk() {
@@ -207,7 +226,7 @@
     { name: 'Weit', back: 17, up: 7.5, look: 6, lookUp: 0.5 },
     { name: 'Motorhaube', fixed: true }
   ];
-  let camMode = 0, camYaw = 0, camHeight = 0;
+  let camMode = 0, camYaw = 0, camHeight = 0, shake = 0;
   const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), camTarget = new THREE.Vector3();
   function switchCam() {
     if (phase === 'menu') return;
@@ -228,11 +247,14 @@
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     camYaw += diff * blend;
     const dx = Math.cos(camYaw), dz = Math.sin(camYaw);
-    camTarget.set(car.x - dx * m.back, 0, car.z - dz * m.back);
+    let back = m.back; // steht ein Haus oder Baum im Weg? Dann näher ran
+    for (let k = 0; k < 6 && world.collide(car.x - dx * back, car.z - dz * back, 0.8); k++) back *= 0.7;
+    camTarget.set(car.x - dx * back, 0, car.z - dz * back);
     const wantY = Math.max(car.y + m.up, world.surfaceHeight(camTarget.x, camTarget.z) + 1.2);
     camHeight = blend >= 1 ? wantY : camHeight + (wantY - camHeight) * Math.min(1, blend * 1.5);
     camTarget.y = camHeight;
     camera.position.copy(camTarget);
+    if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= 0.88; }
     camera.lookAt(v2.set(car.x + dx * m.look, car.y + m.lookUp, car.z + dz * m.look));
   }
 
@@ -345,10 +367,28 @@
 
     car.x += car.vx * dt; car.z += car.vz * dt;
     car.speed = vF; car.slip = vS;
-    const LX = 200, LZ = 150; // unsichtbare Wand
+    const LX = world.limits.x, LZ = world.limits.z; // unsichtbare Wand am Weltrand
     if (Math.abs(car.x) > LX || Math.abs(car.z) > LZ) {
       car.x = clamp(car.x, -LX, LX); car.z = clamp(car.z, -LZ, LZ); car.vx *= -0.3; car.vz *= -0.3;
     }
+
+    // Zusammenstösse mit Bäumen, Häusern, Felsen … (zwei Kreise: vorne und hinten am Auto)
+    let bump = 0, bx = 0, bz = 0;
+    for (const o of [1.25, -1.25]) {
+      const push = world.collide(car.x + fx * o, car.z + fz * o, 1.05);
+      if (!push) continue;
+      car.x += push.x; car.z += push.z;
+      const L = Math.hypot(push.x, push.z) || 1, nx = push.x / L, nz = push.z / L;
+      const vn = car.vx * nx + car.vz * nz;
+      if (vn < 0) { car.vx -= 1.3 * vn * nx; car.vz -= 1.3 * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x + fx * o - nx; bz = car.z + fz * o - nz; } }
+      car.vx *= 0.97; car.vz *= 0.97;
+    }
+    if (bump > 3) {
+      crashSound(bump);
+      shake = Math.min(0.7, bump / 25);
+      for (let k = 0; k < Math.min(8, 2 + bump / 4); k++) spawnParticle(bx, car.y + 0.8, bz, k % 2 ? '#ffd27a' : '#bbbbbb', 0.7, 1.5 + Math.random() * 2);
+    }
+    car.speed = car.vx * fx + car.vz * fz;
 
     // Höhe und Neigung: Boden vorne/hinten/links/rechts messen
     const dx = Math.cos(car.angle), dz = Math.sin(car.angle), ox = -dz, oz = dx;
@@ -643,7 +683,7 @@
 
     if (phase === 'menu') { // Kamera kreist langsam über die Strecke
       menuAngle += dt * 0.07;
-      camera.position.set(Math.cos(menuAngle) * 230, 95, Math.sin(menuAngle) * 170);
+      camera.position.set(Math.cos(menuAngle) * world.size * 1.05, world.size * 0.45, Math.sin(menuAngle) * world.size * 0.8);
       camera.lookAt(0, 0, 0);
     } else if (phase !== 'paused') {
       placeCamera(camModes[camMode].fixed ? 1 : 1 - Math.pow(0.004, dt));
@@ -651,7 +691,7 @@
     world.update(dt, camera, carModel.group.position);
     renderer.render(world.scene, camera);
     if (phase !== 'menu') { updateHud(); drawMinimap(); }
-    updateEngine();
+    updateEngine(dt);
     requestAnimationFrame(loop);
   }
 
@@ -663,7 +703,7 @@
   requestAnimationFrame(loop);
 
   // Für Tests und zum Ausprobieren in der Konsole
-  window.__game = {
+  window.__game = { get audio() { return audio; }, ensureAudio,
     chooseTrack: id => chooseTrack(TRACKS.find(t => t.id === id)), get world() { return world; }, camera, renderer, car, keys,
     // Simuliert Sekunden ohne Bild (zum Testen)
     sim(sec, input) { Object.assign(keys, input || {}); for (let t = 0; t < sec; t += 1 / 60) update(1 / 60); },

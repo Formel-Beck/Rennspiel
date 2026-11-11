@@ -59,7 +59,7 @@ window.THEMES = {
   beach: {
     name: 'Strand', emoji: '🏖️',
     skyTop: '#2e9be6', skyBottom: '#d8f4ff', fog: [160, 530],
-    ground: '#7fb35a', groundVar: '#6ea24c', sand: '#f0d9a0', shoreZ: 92,
+    ground: '#7fb35a', groundVar: '#6ea24c', sand: '#f0d9a0', shoreZ: 182,
     road: '#5a5d61', roadLine: '#ffffff', curb: ['#00acc1', '#ffffff'], banner: '#00acc1',
     sun: '#fff6e5', sunIntensity: 1.0, sunDir: [0.2, 1, 0.6], ambient: 0.6, hemiGround: '#b5a070',
     hills: 5,

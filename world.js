@@ -19,11 +19,12 @@ window.buildWorld = function (track, theme, Q) {
 
   // ---------- 1. Mittellinie der Strasse (weiche Kurve durch die Eckpunkte) ----------
   const path = [];
-  const P = track.points, n = P.length, STEPS = 16;
+  const P = track.points, n = P.length;
   for (let i = 0; i < n; i++) {
     const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
-    for (let s = 0; s < STEPS; s++) {
-      const t = s / STEPS, t2 = t * t, t3 = t2 * t;
+    const steps = Math.max(4, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 5)); // etwa alle 5 m ein Punkt
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps, t2 = t * t, t3 = t2 * t;
       const f = k => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
         (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
       path.push({ x: f(0), z: f(1), y: f(2) || 0 });
@@ -53,6 +54,12 @@ window.buildWorld = function (track, theme, Q) {
       for (let i = 0; i < N; i++) path[i] = nx[i];
     }
   }
+
+  // Wie gross muss die Welt sein? (wächst mit der Strecke)
+  let maxX = 0, maxZ = 0;
+  for (const p of path) { maxX = Math.max(maxX, Math.abs(p.x)); maxZ = Math.max(maxZ, Math.abs(p.z)); }
+  const HX = Math.max(220, maxX + 90), HZ = Math.max(165, maxZ + 80);
+  const areaScale = clamp((HX * HZ) / (220 * 165), 1, 2.2); // mehr Platz = mehr Deko
 
   const tang = [], norm = [], dist = [0];
   for (let i = 0; i < N; i++) {
@@ -102,7 +109,7 @@ window.buildWorld = function (track, theme, Q) {
     const roadY = Math.min(path[best].y, path[(best + 1) % N].y, path[(best - 1 + N) % N].y) - 0.3;
     h = h + (Math.min(h, roadY) - h) * (1 - smooth(edge + CURB + 1, edge + 10, dmin));
     if (theme.shoreZ != null) h -= clamp((z - theme.shoreZ) * 0.18, 0, 7);
-    const e = Math.max(clamp((Math.abs(x) - 210) / 50, 0, 1), clamp((Math.abs(z) - 150) / 50, 0, 1));
+    const e = Math.max(clamp((Math.abs(x) - (HX - 40)) / 50, 0, 1), clamp((Math.abs(z) - (HZ - 40)) / 50, 0, 1));
     const edgeH = (theme.shoreZ != null && z > 0) ? -7 : 0;
     return { h: h * (1 - e) + edgeH * e, dmin };
   }
@@ -114,10 +121,51 @@ window.buildWorld = function (track, theme, Q) {
     return r.dist < edge + CURB ? r.y + 0.05 : terrainHeight(x, z);
   }
 
+  // ---------- Kollisionen: feste Objekte in einem Raster speichern ----------
+  const CELL = 12, grid = new Map();
+  const cellKey = (ix, iz) => ix * 100000 + iz;
+  function addCollider(c) {
+    const ex = c.r || Math.max(c.hx, c.hz);
+    for (let ix = Math.floor((c.x - ex) / CELL); ix <= Math.floor((c.x + ex) / CELL); ix++)
+      for (let iz = Math.floor((c.z - ex) / CELL); iz <= Math.floor((c.z + ex) / CELL); iz++) {
+        const k = cellKey(ix, iz);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(c);
+      }
+  }
+  // Prüft einen Kreis (x, z, Radius r). Gibt zurück, wie weit er hinausgeschoben werden muss.
+  function collide(x, z, r) {
+    let px = 0, pz = 0, hit = false;
+    const seen = new Set();
+    for (let ix = Math.floor((x - r) / CELL); ix <= Math.floor((x + r) / CELL); ix++)
+      for (let iz = Math.floor((z - r) / CELL); iz <= Math.floor((z + r) / CELL); iz++) {
+        const list = grid.get(cellKey(ix, iz));
+        if (!list) continue;
+        for (const c of list) {
+          if (seen.has(c)) continue; seen.add(c);
+          let dx, dz, d, min;
+          if (c.r) { dx = x - c.x; dz = z - c.z; min = r + c.r; d = Math.hypot(dx, dz); }
+          else { // Rechteck (Haus)
+            const qx = clamp(x, c.x - c.hx, c.x + c.hx), qz = clamp(z, c.z - c.hz, c.z + c.hz);
+            dx = x - qx; dz = z - qz; d = Math.hypot(dx, dz); min = r;
+            if (d < 1e-6) { // Mittelpunkt im Haus: zur nächsten Wand hinaus
+              const ox = c.hx - Math.abs(x - c.x), oz = c.hz - Math.abs(z - c.z);
+              if (ox < oz) { dx = Math.sign(x - c.x) || 1; dz = 0; d = -ox; } else { dz = Math.sign(z - c.z) || 1; dx = 0; d = -oz; }
+              px += dx * (r - d); pz += dz * (r - d); hit = true; continue;
+            }
+          }
+          if (d < min) { const k = (min - d) / (d || 1); px += dx * k; pz += dz * k; hit = true; }
+        }
+      }
+    return hit ? { x: px, z: pz } : null;
+  }
+  // Wie dick sind die festen Teile der Deko? (Radius bei Grösse 1)
+  const SOLID = { pine: 0.6, snowpine: 0.6, tree: 0.6, rock: 1.25, cactus: 0.7, palm: 0.45, umbrella: 0.15, snowman: 1.0, lamp: 0.3 };
+
   // ---------- 4. Gelände-Mesh ----------
   {
-    const TW = 520, TD = 400;
-    const g = new THREE.PlaneGeometry(TW, TD, Q.terrainSeg[0], Q.terrainSeg[1]);
+    const TW = 2 * HX + 40, TD = 2 * HZ + 40;
+    const g = new THREE.PlaneGeometry(TW, TD, Math.round(TW / Q.terrainRes), Math.round(TD / Q.terrainRes));
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position, colors = [];
     const c1 = new THREE.Color(theme.ground), c2 = new THREE.Color(theme.groundVar), tmp = new THREE.Color();
@@ -246,6 +294,7 @@ window.buildWorld = function (track, theme, Q) {
       post.position.set(p.x + nn.x * sgn * (edge + 3), p.y + 4.5, p.z + nn.z * sgn * (edge + 3));
       post.castShadow = true;
       scene.add(post);
+      addCollider({ x: post.position.x, z: post.position.z, r: 0.6 });
     }
     const bc = document.createElement('canvas'); bc.width = 512; bc.height = 64;
     const bx = bc.getContext('2d');
@@ -300,6 +349,7 @@ window.buildWorld = function (track, theme, Q) {
         glows.push({ x: p.x + nn.x * sgn * (edge - 3), y: p.y + 0.12, z: p.z + nn.z * sgn * (edge - 3), s: 1 });
       }
       addInstances(Props.build({ type: 'lamp' }), lamps);
+      for (const l of lamps) addCollider({ x: l.x, z: l.z, r: SOLID.lamp });
       const gc = document.createElement('canvas'); gc.width = gc.height = 64;
       const gx = gc.getContext('2d'), grad = gx.createRadialGradient(32, 32, 0, 32, 32, 32);
       grad.addColorStop(0, 'rgba(255,220,140,0.55)'); grad.addColorStop(1, 'rgba(255,220,140,0)');
@@ -308,12 +358,12 @@ window.buildWorld = function (track, theme, Q) {
       addInstances([{ geo: gg, mat: new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), cast: false }], glows);
       continue;
     }
-    const count = Math.round(def.count * Q.propScale);
+    const count = Math.round(def.count * Q.propScale * areaScale);
     const minD = edge + (def.minDist != null ? def.minDist : 6);
     const maxD = def.maxDist != null ? edge + def.maxDist : Infinity;
     const items = [];
     for (let tries = 0; items.length < count && tries < count * 50; tries++) {
-      const x = (rnd() - 0.5) * 440, z = (rnd() - 0.5) * 330;
+      const x = (rnd() * 2 - 1) * (HX - 15), z = (rnd() * 2 - 1) * (HZ - 15);
       if (theme.shoreZ != null) {
         if (def.nearShore) { if (z < theme.shoreZ - 24 || z > theme.shoreZ - 6) continue; }
         else if (z > theme.shoreZ - 8) continue;
@@ -329,6 +379,12 @@ window.buildWorld = function (track, theme, Q) {
         items.push({ x, y: t.h - 0.1, z, ry: rnd() * Math.PI * 2, s: 0.75 + rnd() * 0.6, colors: { canopy: pick(PAL.canopy) } });
       }
     }
+    for (const it of items) {
+      if (def.type === 'building') {
+        const turned = Math.abs(it.ry) > 0.1; // 0 oder 90 Grad gedreht
+        addCollider({ x: it.x, z: it.z, hx: 5 * (turned ? it.sz : it.sx), hz: 5 * (turned ? it.sx : it.sz) });
+      } else if (SOLID[def.type]) addCollider({ x: it.x, z: it.z, r: SOLID[def.type] * it.s });
+    }
     if (def.type === 'building') {
       // 4 verschiedene Haushöhen, damit die Fenster nicht verzerrt sind
       const heights = [14, 24, 38, 56];
@@ -337,11 +393,12 @@ window.buildWorld = function (track, theme, Q) {
       addInstances(Props.build(def, !!theme.night), items);
     }
   }
-  for (const m of Props.backdrop(theme.backdrop, theme, rnd)) scene.add(m);
+  for (const m of Props.backdrop(theme.backdrop, theme, rnd, Math.max(HX / 220, HZ / 165))) scene.add(m);
 
   // ---------- 8. Himmel, Nebel, Sonne, Sterne ----------
   scene.background = new THREE.Color(theme.skyBottom);
-  scene.fog = new THREE.Fog(theme.skyBottom, theme.fog[0], theme.fog[1]);
+  const fogScale = clamp(Math.max(HX / 220, HZ / 165), 1, 1.5);
+  scene.fog = new THREE.Fog(theme.skyBottom, theme.fog[0] * fogScale, theme.fog[1] * fogScale);
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 24, 12), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: { top: { value: new THREE.Color(theme.skyTop) }, bottom: { value: new THREE.Color(theme.skyBottom) } },
@@ -419,5 +476,5 @@ window.buildWorld = function (track, theme, Q) {
   const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
   for (const p of path) { bounds.minX = Math.min(bounds.minX, p.x); bounds.maxX = Math.max(bounds.maxX, p.x); bounds.minZ = Math.min(bounds.minZ, p.z); bounds.maxZ = Math.max(bounds.maxZ, p.z); }
 
-  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, update, bounds, theme, track };
+  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, collide, update, bounds, limits: { x: HX - 12, z: HZ - 12 }, size: Math.max(HX, HZ), theme, track };
 };

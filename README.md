@@ -1,6 +1,6 @@
 # Rennspiel
 
-3D-Rennspiel im Browser. Läuft am Handy als App (Web-App) und offline.
+3D-Rennspiel im Browser mit den Fahrern aus Marienfeld. Läuft am Handy als App (Web-App) und offline.
 
 ## Spielen
 Die Seite auf dem Handy öffnen und als App installieren:
