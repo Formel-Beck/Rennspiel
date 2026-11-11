@@ -1,24 +1,39 @@
 // =====================================================
 //  MEHRSPIELER
-//  Einer ist Gastgeber und erstellt einen Raum mit Code.
-//  Die anderen verbinden sich direkt mit seinem Handy (PeerJS/WebRTC).
-//  Der Gastgeber verteilt alle Nachrichten an alle.
+//  Alle Handys verbinden sich mit einem öffentlichen MQTT-Server
+//  (eine normale, verschlüsselte Webverbindung). Der Server leitet
+//  die Nachrichten weiter – die Handys müssen sich nicht direkt
+//  erreichen können. Einer ist Gastgeber und verwaltet den Raum.
+//
+//  Kanäle (Topics) pro Raum:  rennspiel-formelbeck/v1/<CODE>/…
+//   info      Gastgeber meldet: "Raum existiert" (bleibt gespeichert)
+//   down      Gastgeber -> alle
+//   up/<id>   Spieler -> Gastgeber
 //
 //  Nachrichten (t = Typ):
 //   hello  Spieler meldet sich (Name, Fahrer, Fahrzeug)
 //   lobby  Gastgeber schickt Spielerliste und Strecke
 //   start  Rennen beginnt (Strecke, Runden, Startplätze)
-//   s / ss Positionen der Autos (ca. 15x pro Sekunde)
-//   fin    jemand ist im Ziel
-//   honk   jemand hupt
+//   s / ss Positionen der Autos (10x pro Sekunde)
+//   fin    jemand ist im Ziel,  honk  jemand hupt
+//   ping   "ich bin noch da",   bye   verlässt den Raum
 // =====================================================
 window.MP = (() => {
   const MAX_PLAYERS = 6;
-  const PREFIX = 'rennspiel-formelbeck-';                 // damit sich unsere Räume nicht mit anderen PeerJS-Apps mischen
+  const BASE = 'rennspiel-formelbeck/v1/';
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // ohne 0/O und 1/I, die verwechselt man leicht
+  // Öffentliche Server, der Reihe nach probiert (fällt einer aus, nimmt das Spiel den nächsten)
+  const BROKERS = [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
+    'wss://test.mosquitto.org:8081/mqtt'
+  ];
+  const SEND_HZ = 10;
   const $ = id => document.getElementById(id);
 
-  let peer = null, hostConn = null, conns = new Map(), code = null, stateTimer = null;
+  let client = null, brokerIdx = 0, code = null, stateTimer = null, beatTimer = null, joinTimer = null, wakeLock = null;
+  const lastSeen = new Map(); // id -> Zeit der letzten Nachricht (Gastgeber prüft, wer noch da ist)
+  let hostSeen = 0;
   const api = {
     active: false, isHost: false, racing: false, myId: null,
     players: new Map(),   // id -> { id, name, char, car }
@@ -29,118 +44,141 @@ window.MP = (() => {
     getInfo: null, getState: null, onStart: null, onHonk: null, onLeave: null, onLobby: null, onRaceEnd: null
   };
 
-  // Für Tests lässt sich ein eigener Vermittlungsserver angeben: ?peerhost=localhost:9000
-  function peerOptions() {
-    const ph = new URLSearchParams(location.search).get('peerhost');
-    if (ph) { const [host, port] = ph.split(':'); return { host, port: +port, path: '/', secure: false, debug: 1, config: { iceServers: [] } }; }
-    return { debug: 1 };
+  // Für Tests lässt sich ein eigener Server angeben: ?mqtt=ws://127.0.0.1:8888
+  function brokerList() {
+    const own = new URLSearchParams(location.search).get('mqtt');
+    return own ? own.split(',') : BROKERS;
   }
   const randomCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  const randomId = () => 'p' + Math.random().toString(36).slice(2, 10);
+  const T = (sub) => BASE + code + '/' + sub;
 
   function setStatus(text, isError) {
     const el = $('mpStatus'); if (!el) return;
     el.textContent = text || ''; el.classList.toggle('err', !!isError);
   }
-
-  // ---------- Gastgeber ----------
-  let reconnectTimer = null, wakeLock = null;
-  function host() {
-    leave(true);
-    code = randomCode();
-    setStatus('Raum wird erstellt …');
-    createHostPeer();
-  }
-  // Meldet den Raum beim Vermittlungsdienst an (auch nach Verbindungsverlust mit demselben Code)
-  function createHostPeer() {
-    try { if (peer) peer.destroy(); } catch (e) {}
-    peer = new Peer(PREFIX + code, peerOptions());
-    peer.on('open', id => {
-      const first = !api.active;
-      api.active = true; api.isHost = true; api.myId = id;
-      if (first) {
-        api.trackId = api.trackId || TRACKS[0].id;
-        api.players.set(id, Object.assign({ id }, api.getInfo()));
-        startStateLoop();
-      }
-      setNet(true); setStatus('');
-      keepAwake();
-      render();
-    });
-    peer.on('connection', conn => {
-      conn.on('open', () => conns.set(conn.peer, conn));
-      conn.on('data', d => hostReceive(conn, d));
-      conn.on('close', () => dropPlayer(conn.peer));
-      conn.on('error', () => dropPlayer(conn.peer));
-    });
-    peer.on('error', err => {
-      if (err.type === 'unavailable-id') {
-        // Der Code ist noch vom alten Verbindungsversuch reserviert:
-        // Raum besteht schon -> einfach gleich nochmal versuchen. Neuer Raum -> neuen Code nehmen.
-        if (api.active) scheduleReconnect(3000); else { code = randomCode(); createHostPeer(); }
-        return;
-      }
-      if (api.active && ['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'].includes(err.type)) { scheduleReconnect(2500); return; }
-      if (api.active && err.type === 'peer-unavailable') return;
-      networkError(err);
-    });
-    peer.on('disconnected', () => { setNet(false); scheduleReconnect(1000); });
-  }
-  function scheduleReconnect(ms) {
-    if (!api.isHost && api.active) return;
-    clearTimeout(reconnectTimer);
-    setNet(false);
-    reconnectTimer = setTimeout(() => {
-      if (!code || !api.isHost) return;
-      if (peer && !peer.destroyed && peer.disconnected) { try { peer.reconnect(); } catch (e) { createHostPeer(); } }
-      else if (!peer || peer.destroyed) createHostPeer();
-    }, ms + (api._testDelay || 0));
-  }
-  // Kommt der Gastgeber zurück in die App (z.B. nach WhatsApp), sofort wieder anmelden
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden || !api.active) return;
-    if (api.isHost && peer && (peer.disconnected || peer.destroyed)) scheduleReconnect(0);
-    keepAwake();
-  });
-  // Bildschirm nicht ausgehen lassen, solange man in einem Raum ist
-  async function keepAwake() {
-    try { if (navigator.wakeLock && !wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {}
-  }
+  let netOk = true;
   function setNet(ok) {
+    netOk = ok;
     const el = $('mpNet'); if (!el) return;
     el.textContent = ok ? (api.isHost ? '🟢 Raum ist online – Freunde können beitreten' : '🟢 Verbunden') : '🟠 Verbindung wird wiederhergestellt …';
     el.classList.toggle('warn', !ok);
   }
 
-  function hostReceive(conn, d) {
-    const id = conn.peer;
+  // ---------- Verbindung zum Server ----------
+  // Probiert die Server der Reihe nach, ab "start". Ruft done(true/false) auf.
+  function connectBroker(start, done) {
+    const list = brokerList();
+    let i = 0;
+    const tryNext = () => {
+      if (i >= list.length) { done(false); return; }
+      const idx = (start + i) % list.length; i++;
+      const c = mqtt.connect(list[idx], {
+        clientId: 'rs_' + api.myId + '_' + Math.random().toString(36).slice(2, 6),
+        clean: true, keepalive: 20, connectTimeout: 6000, reconnectPeriod: 0, protocolVersion: 4
+      });
+      let settled = false;
+      const fail = () => { if (settled) return; settled = true; try { c.end(true); } catch (e) {} tryNext(); };
+      const timer = setTimeout(fail, 7000);
+      c.on('connect', () => {
+        if (settled) return; settled = true; clearTimeout(timer);
+        brokerIdx = idx; client = c;
+        c.options.reconnectPeriod = 2000; // ab jetzt bei Abbruch automatisch neu verbinden
+        c.on('message', onMessage);
+        c.on('offline', () => setNet(false));
+        c.on('reconnect', () => setNet(false));
+        c.on('connect', () => { resubscribe(); setNet(true); if (api.isHost) announce(); });
+        done(true);
+      });
+      c.on('error', fail);
+      c.on('close', () => { if (!settled) fail(); });
+    };
+    tryNext();
+  }
+  let subs = [];
+  function subscribe(topics) { subs = subs.concat(topics); client.subscribe(topics, { qos: 0 }); }
+  function resubscribe() { if (client && subs.length) client.subscribe(subs, { qos: 0 }); }
+  function publish(sub, msg, opts) {
+    if (!client || !client.connected) return;
+    try { client.publish(T(sub), JSON.stringify(msg), Object.assign({ qos: 0 }, opts || {})); } catch (e) {}
+  }
+
+  function onMessage(topic, buf) {
+    if (!netOk && api.active) setNet(true); // Nachrichten kommen an -> Verbindung steht
+    if (!code || topic.indexOf(BASE + code + '/') !== 0) return;
+    const sub = topic.slice((BASE + code + '/').length);
+    let d = null;
+    try { d = buf.length ? JSON.parse(buf.toString()) : null; } catch (e) { return; }
+    if (sub === 'info') { onInfo(d); return; }
+    if (api.isHost && sub.indexOf('up/') === 0) { if (d) hostReceive(sub.slice(3), d); return; }
+    if (!api.isHost && sub === 'down') { if (d && (!d.to || d.to === api.myId)) { hostSeen = performance.now(); clientReceive(d); } }
+  }
+
+  // ---------- Gastgeber ----------
+  let infoWaiter = null;
+  function onInfo(d) { if (infoWaiter) infoWaiter(d); }
+  function announce() { publish('info', { host: api.myId, at: Date.now() }, { retain: true }); }
+
+  function host() {
+    leave(true);
+    api.myId = randomId();
+    setStatus('Verbinde mit dem Server …');
+    connectBroker(0, ok => {
+      if (!ok) { setStatus('Kein Mehrspieler-Server erreichbar. Bist du online? (Manche Schul- oder Firmen-WLANs blockieren das – dann mobile Daten probieren.)', true); leave(true); return; }
+      pickFreeCode(0);
+    });
+  }
+  // Neuen Code wählen, der gerade nicht benutzt wird
+  function pickFreeCode(tries) {
+    code = randomCode();
+    subs = [];
+    subscribe([T('info')]);
+    infoWaiter = d => { if (d && d.host && Date.now() - d.at < 60000 && tries < 5) { infoWaiter = null; client.unsubscribe(T('info')); pickFreeCode(tries + 1); } };
+    setTimeout(() => {
+      if (!infoWaiter) return;
+      infoWaiter = null;
+      api.active = true; api.isHost = true;
+      api.trackId = api.trackId || TRACKS[0].id;
+      api.players.set(api.myId, Object.assign({ id: api.myId }, api.getInfo()));
+      subscribe([T('up/+')]);
+      announce();
+      startLoops();
+      setStatus(''); setNet(true); keepAwake();
+      render();
+    }, 1200);
+  }
+
+  function hostReceive(id, d) {
+    if (id === api.myId) return;
+    lastSeen.set(id, performance.now());
     if (d.t === 'hello') {
-      if (!api.players.has(id) && api.players.size >= MAX_PLAYERS) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); return; }
+      if (!api.players.has(id) && api.players.size >= MAX_PLAYERS) { publish('down', { t: 'full', to: id }); return; }
+      const isNew = !api.players.has(id);
       api.players.set(id, { id, name: d.name, char: d.char, car: d.car });
       broadcastLobby();
-      if (api.racing) conn.send({ t: 'busy' });
+      if (isNew && api.racing) publish('down', { t: 'busy', to: id });
+    } else if (!api.players.has(id)) {
+      if (d.t !== 'bye') publish('down', { t: 'who', to: id }); // unbekannt (z.B. nach Neustart): soll sich neu melden
     } else if (d.t === 's') {
       pushRemote(id, d.s);
     } else if (d.t === 'fin') {
       api.finishes.set(id, d.time);
-      broadcast({ t: 'fin', id, time: d.time });
+      publish('down', { t: 'fin', id, time: d.time });
     } else if (d.t === 'honk') {
-      broadcast({ t: 'honk', id }, id);
+      publish('down', { t: 'honk', id });
       api.onHonk && api.onHonk(id);
+    } else if (d.t === 'bye') {
+      dropPlayer(id);
     }
   }
-
   function dropPlayer(id) {
-    if (!conns.has(id) && !api.players.has(id)) return;
-    conns.delete(id); api.players.delete(id); api.remote.delete(id);
+    if (!api.players.has(id) || id === api.myId) return;
+    api.players.delete(id); api.remote.delete(id); lastSeen.delete(id);
     broadcastLobby();
     api.onLeave && api.onLeave(id);
   }
-
-  function broadcast(msg, exceptId) {
-    for (const [id, c] of conns) if (id !== exceptId && c.open) { try { c.send(msg); } catch (e) {} }
-  }
-  function lobbyMsg() { return { t: 'lobby', players: [...api.players.values()], track: api.trackId, racing: api.racing, code }; }
-  function broadcastLobby() { broadcast(lobbyMsg()); render(); api.onLobby && api.onLobby(); }
+  function lobbyMsg() { return { t: 'lobby', players: [...api.players.values()], track: api.trackId, racing: api.racing }; }
+  function broadcastLobby() { publish('down', lobbyMsg()); render(); api.onLobby && api.onLobby(); }
 
   function chooseTrack(id) { api.trackId = id; broadcastLobby(); }
 
@@ -150,8 +188,7 @@ window.MP = (() => {
     const slots = {}; let k = 0;
     for (const id of api.players.keys()) slots[id] = k++;
     api.racing = true; api.finishes.clear(); api.laps = track.laps;
-    const msg = { t: 'start', track: track.id, laps: track.laps, slots };
-    broadcast(msg);
+    publish('down', { t: 'start', track: track.id, laps: track.laps, slots });
     api.onStart && api.onStart(track.id, slots[api.myId], track.laps);
   }
   function endRace() { // zurück in die Lobby
@@ -160,62 +197,64 @@ window.MP = (() => {
   }
 
   // ---------- Mitspieler ----------
-  const JOIN_TRIES = 6;
+  const JOIN_SECONDS = 45;
   function join(raw) {
     const c = (raw || '').trim().toUpperCase();
     if (c.length !== 4) { setStatus('Der Code hat 4 Zeichen.', true); return; }
     leave(true);
-    code = c;
-    let tries = 0, attemptTimer = null;
-    const joinCode = c;
-    setStatus('Verbinde …');
-    peer = new Peer(undefined, peerOptions());
+    code = c; api.myId = randomId();
+    const myJoin = code, started = performance.now();
+    const hint = parseInt(new URLSearchParams(location.search).get('b'), 10);
+    const list = brokerList();
+    let tried = 0, startIdx = isNaN(hint) ? 0 : hint % list.length;
+    setStatus('Verbinde mit dem Server …');
 
-    function fail(msg) { clearTimeout(attemptTimer); setStatus(msg, true); leave(true); }
-    function retryOrFail() {
-      clearTimeout(attemptTimer);
-      if (api.active || code !== joinCode) return;
-      if (tries < JOIN_TRIES) setTimeout(attempt, 2500);
-      else fail('Raum ' + joinCode + ' nicht gefunden. Stimmt der Code, und ist der Gastgeber noch im Spiel (nicht in WhatsApp oder im Sperrbildschirm)?');
-    }
-    function attempt() {
-      if (api.active || code !== joinCode || !peer || peer.destroyed) return;
-      tries++;
-      setStatus('Suche Raum ' + joinCode + ' … ' + (tries > 1 ? '(Versuch ' + tries + ' von ' + JOIN_TRIES + ')' : ''));
-      try { if (hostConn) hostConn.close(); } catch (e) {}
-      const conn = peer.connect(PREFIX + joinCode, { reliable: true });
-      hostConn = conn;
-      // Verbindungsaufbau über mobile Daten kann dauern – 15 Sekunden pro Versuch
-      attemptTimer = setTimeout(() => { if (!api.active && hostConn === conn) { try { conn.close(); } catch (e) {} retryOrFail(); } }, 15000);
-      conn.on('open', () => {
-        if (hostConn !== conn) return;
-        clearTimeout(attemptTimer);
-        api.active = true; api.isHost = false;
-        conn.send(Object.assign({ t: 'hello' }, api.getInfo()));
-        startStateLoop();
-        setStatus(''); setNet(true); keepAwake();
-      });
-      conn.on('data', d => { if (hostConn === conn) clientReceive(d); });
-      conn.on('close', () => { if (hostConn === conn && api.active) networkError({ type: 'host-left' }); });
-    }
-    peer.on('open', id => { api.myId = id; attempt(); });
-    peer.on('error', err => {
-      if (err.type === 'peer-unavailable') { retryOrFail(); return; }
-      if (!api.active && ['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) { fail('Keine Verbindung zum Vermittlungsdienst. Bist du online?'); return; }
-      if (api.active && err.type !== 'disconnected') return; // Verbindung zum Gastgeber steht schon – Vermittlungsdienst egal
-      if (!api.active) networkError(err);
+    const fail = msg => { setStatus(msg, true); leave(true); };
+    // Auf einem Server nach dem Raum suchen; wenn nicht gefunden, nächsten Server probieren
+    const searchOn = idx => connectBroker(idx, ok => {
+      if (code !== myJoin) return;
+      if (!ok) { fail('Kein Mehrspieler-Server erreichbar. Bist du online? (Manche Schul- oder Firmen-WLANs blockieren das – dann mobile Daten probieren.)'); return; }
+      tried++;
+      subs = [];
+      subscribe([T('info'), T('down')]);
+      const ask = () => publish('up/' + api.myId, Object.assign({ t: 'hello' }, api.getInfo()));
+      let found = false;
+      infoWaiter = d => { if (d && d.host && Date.now() - d.at < 120000) { found = true; ask(); } };
+      const tick = () => {
+        if (code !== myJoin || api.active) return;
+        const secs = Math.round((performance.now() - started) / 1000);
+        if (secs > JOIN_SECONDS) { fail('Raum ' + myJoin + ' nicht gefunden. Stimmt der Code, und ist der Gastgeber noch im Spiel?'); return; }
+        if (!found && secs > 4 * tried && tried < list.length && brokerList().length > 1) {
+          // Auf diesem Server gibt es den Raum (noch) nicht: nächsten probieren
+          try { client.end(true); } catch (e) {} client = null;
+          searchOn((brokerIdx + 1) % list.length); return;
+        }
+        setStatus(found ? 'Raum gefunden – trete bei …' : 'Suche Raum ' + myJoin + ' … (' + secs + ' s)');
+        ask(); // nochmal anklopfen, falls die erste Nachricht verloren ging
+        joinTimer = setTimeout(tick, 1500);
+      };
+      ask();
+      joinTimer = setTimeout(tick, 1000);
     });
-    peer.on('disconnected', () => { if (!api.active) { try { peer.reconnect(); } catch (e) {} } });
+    searchOn(startIdx);
   }
 
   function clientReceive(d) {
     if (d.t === 'lobby') {
+      if (!d.players.some(p => p.id === api.myId)) return; // noch nicht aufgenommen
+      if (!api.active) {
+        api.active = true; api.isHost = false; infoWaiter = null; clearTimeout(joinTimer);
+        startLoops(); setStatus(''); setNet(true); keepAwake();
+      }
       api.players.clear();
       for (const p of d.players) api.players.set(p.id, p);
       api.trackId = d.track;
       if (!d.racing && api.racing) { api.racing = false; api.remote.clear(); api.onRaceEnd && api.onRaceEnd(); }
       render(); api.onLobby && api.onLobby();
+    } else if (!api.active) {
+      if (d.t === 'full') { setStatus('Der Raum ist voll (höchstens ' + MAX_PLAYERS + ' Fahrer).', true); leave(true); }
     } else if (d.t === 'start') {
+      if (!(api.myId in d.slots)) return;
       api.racing = true; api.finishes.clear(); api.laps = d.laps; api.trackId = d.track;
       api.onStart && api.onStart(d.track, d.slots[api.myId] || 0, d.laps);
     } else if (d.t === 'ss') {
@@ -223,23 +262,32 @@ window.MP = (() => {
     } else if (d.t === 'fin') {
       api.finishes.set(d.id, d.time);
     } else if (d.t === 'honk') {
-      api.onHonk && api.onHonk(d.id);
-    } else if (d.t === 'full') {
-      setStatus('Der Raum ist voll (höchstens ' + MAX_PLAYERS + ' Fahrer).', true); leave(true);
+      if (d.id !== api.myId) api.onHonk && api.onHonk(d.id);
     } else if (d.t === 'busy') {
       setStatus('Das Rennen läuft schon – du bist beim nächsten dabei.');
+    } else if (d.t === 'who') {
+      publish('up/' + api.myId, Object.assign({ t: 'hello' }, api.getInfo()));
+    } else if (d.t === 'bye') {
+      hostLeft();
     }
   }
+  function hostLeft() {
+    const wasRacing = api.racing;
+    leave(true);
+    setStatus('Der Gastgeber hat das Spiel verlassen.', true);
+    api.onLeave && api.onLeave(null, wasRacing);
+  }
 
-  // ---------- Positionen austauschen ----------
+  // ---------- Positionen und "noch da?" ----------
   function pushRemote(id, s) {
     if (!api.remote.has(id)) api.remote.set(id, []);
     const buf = api.remote.get(id);
     buf.push({ time: performance.now(), s });
     if (buf.length > 12) buf.shift();
   }
-  function startStateLoop() {
-    clearInterval(stateTimer);
+  function startLoops() {
+    clearInterval(stateTimer); clearInterval(beatTimer);
+    hostSeen = performance.now();
     stateTimer = setInterval(() => {
       if (!api.active || !api.racing || !api.getState) return;
       const s = api.getState();
@@ -247,60 +295,73 @@ window.MP = (() => {
       if (api.isHost) {
         const list = [{ id: api.myId, s }];
         for (const [id, buf] of api.remote) if (buf.length) list.push({ id, s: buf[buf.length - 1].s });
-        broadcast({ t: 'ss', list });
-      } else if (hostConn && hostConn.open) {
-        try { hostConn.send({ t: 's', s }); } catch (e) {}
+        publish('down', { t: 'ss', list });
+      } else publish('up/' + api.myId, { t: 's', s });
+    }, 1000 / SEND_HZ);
+    beatTimer = setInterval(() => {
+      if (!api.active) return;
+      const now = performance.now();
+      if (api.isHost) {
+        announce();
+        if (!api.racing) publish('down', lobbyMsg()); // Lobby regelmässig auffrischen
+        for (const id of [...api.players.keys()]) if (id !== api.myId && now - (lastSeen.get(id) || now) > 30000) dropPlayer(id);
+      } else {
+        if (!api.racing) publish('up/' + api.myId, { t: 'ping' });
+        if (now - hostSeen > 40000 && !document.hidden) hostLeft(); // 40 s nichts mehr vom Gastgeber
       }
-    }, 66);
+    }, 4000);
   }
 
   function sendFinish(time) {
     api.finishes.set(api.myId, time);
-    if (api.isHost) broadcast({ t: 'fin', id: api.myId, time });
-    else if (hostConn && hostConn.open) hostConn.send({ t: 'fin', time });
+    if (api.isHost) publish('down', { t: 'fin', id: api.myId, time });
+    else publish('up/' + api.myId, { t: 'fin', time });
   }
   function sendHonk() {
     if (!api.active) return;
-    if (api.isHost) broadcast({ t: 'honk', id: api.myId });
-    else if (hostConn && hostConn.open) hostConn.send({ t: 'honk' });
+    if (api.isHost) publish('down', { t: 'honk', id: api.myId });
+    else publish('up/' + api.myId, { t: 'honk' });
   }
   // Fahrer oder Fahrzeug geändert, während man in der Lobby ist
   function updateInfo() {
     if (!api.active) return;
     const info = api.getInfo();
     if (api.isHost) { api.players.set(api.myId, Object.assign({ id: api.myId }, info)); broadcastLobby(); }
-    else if (hostConn && hostConn.open) hostConn.send(Object.assign({ t: 'hello' }, info));
+    else publish('up/' + api.myId, Object.assign({ t: 'hello' }, info));
   }
 
-  function networkError(err) {
-    const msgs = {
-      'host-left': 'Der Gastgeber hat das Spiel verlassen.',
-      'network': 'Keine Verbindung zum Vermittlungsdienst. Bist du online?',
-      'server-error': 'Der Vermittlungsdienst antwortet nicht. Versuch es gleich nochmal.',
-      'browser-incompatible': 'Dieser Browser kann leider keinen Mehrspieler.',
-      'webrtc': 'Die Verbindung zu den anderen Handys hat nicht geklappt.'
-    };
-    const wasRacing = api.racing;
-    leave(true);
-    setStatus(msgs[err.type] || ('Verbindungsfehler: ' + (err.type || err.message || err)), true);
-    api.onLeave && api.onLeave(null, wasRacing);
+  // Zurück in der App (z.B. nach WhatsApp): Verbindung prüfen, Bildschirm wachhalten
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !api.active) return;
+    hostSeen = Math.max(hostSeen, performance.now() - 20000);
+    if (client && !client.connected) { try { client.reconnect(); } catch (e) {} }
+    keepAwake();
+  });
+  async function keepAwake() {
+    try { if (navigator.wakeLock && !wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {}
   }
 
   function leave(silent) {
-    clearInterval(stateTimer); clearTimeout(reconnectTimer);
+    clearInterval(stateTimer); clearInterval(beatTimer); clearTimeout(joinTimer);
+    infoWaiter = null;
+    if (client) {
+      const c = client;
+      try {
+        if (api.active && api.isHost) { publish('down', { t: 'bye' }); c.publish(T('info'), '', { retain: true }); }
+        else if (api.active) publish('up/' + api.myId, { t: 'bye' });
+      } catch (e) {}
+      setTimeout(() => { try { c.end(true); } catch (e) {} }, 300);
+    }
     try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null;
-    try { if (hostConn) hostConn.close(); } catch (e) {}
-    for (const c of conns.values()) { try { c.close(); } catch (e) {} }
-    try { if (peer) peer.destroy(); } catch (e) {}
-    peer = null; hostConn = null; conns = new Map(); code = null;
-    api.active = false; api.isHost = false; api.racing = false; api.myId = null;
-    api.players.clear(); api.remote.clear(); api.finishes.clear();
+    client = null; code = null; subs = [];
+    api.active = false; api.isHost = false; api.racing = false;
+    api.players.clear(); api.remote.clear(); api.finishes.clear(); lastSeen.clear();
     if (!silent) setStatus('');
     render();
   }
 
   // ---------- Einladen ----------
-  function inviteLink() { return location.origin + location.pathname + '?raum=' + code; }
+  function inviteLink() { return location.origin + location.pathname + '?raum=' + code + (brokerIdx ? '&b=' + brokerIdx : ''); }
   async function invite() {
     const url = inviteLink(), text = 'Fahr mit mir im Rennspiel! Raum-Code: ' + code;
     try { if (navigator.share) { await navigator.share({ title: 'Rennspiel', text, url }); return; } } catch (e) { if (e.name === 'AbortError') return; }
@@ -359,7 +420,7 @@ window.MP = (() => {
     $('mpStart').addEventListener('click', startRace);
     const raum = (new URLSearchParams(location.search).get('raum') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
     if (raum) $('mpJoinCode').value = raum;
-    if (typeof Peer === 'undefined') setStatus('Mehrspieler braucht eine Internetverbindung beim ersten Start.', true);
+    if (typeof mqtt === 'undefined') setStatus('Mehrspieler braucht eine Internetverbindung beim ersten Start.', true);
     render();
     return raum.length === 4 ? raum : null;
   }
@@ -368,6 +429,5 @@ window.MP = (() => {
     return n;
   }
 
-  api._peer = () => peer; // nur für Tests
   return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, updateInfo, render, myName });
 })();
