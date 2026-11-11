@@ -202,7 +202,21 @@
 <script>
   // Offline-Modus einschalten (klappt nur auf einer eigenen Webadresse, z.B. GitHub Pages)
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      setTimeout(() => reg.update().catch(() => {}), 4000);          // kurz nach dem Start nach Updates schauen
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // Neue Version installiert? Dann einmal neu laden – aber nicht mitten im Rennen
+    let hadController = !!navigator.serviceWorker.controller, reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) { hadController = true; return; }
+      const tryReload = () => {
+        const ph = window.__game && window.__game.phase;
+        if (ph && ph !== 'menu') return setTimeout(tryReload, 2000);
+        reloaded = true; location.reload();
+      };
+      tryReload();
+    });
   }
 </script>
 </body>
