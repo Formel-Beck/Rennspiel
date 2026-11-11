@@ -52,7 +52,7 @@
   const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
   const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
   const RACE = { laps: 0 }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
-  const lapsNeeded = () => RACE.laps || track.laps;
+  const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
   let perf = {};
@@ -72,11 +72,13 @@
     char = c;
     try { localStorage.setItem('rennspiel-char', c.id); } catch (e) {}
     rebuildCar();
+    MP.updateInfo();
   }
   function setVehicle(v) {
     carCfg = v;
     try { localStorage.setItem('rennspiel-car', v.id); } catch (e) {}
     rebuildCar();
+    MP.updateInfo();
     if (audio) { audio.engine.stop(); audio.engine = EngineSound(audio.ctx, audio.ctx.destination, carCfg.sound); }
   }
   function rebuildCar() {
@@ -142,6 +144,7 @@
     });
   }
   function loadTrack(def) {
+    clearRemotes();
     if (world) disposeScene(world.scene);
     track = def; theme = THEMES[def.theme];
     world = buildWorld(def, theme, Q);
@@ -166,7 +169,7 @@
     const key = e.key.toLowerCase(), k = keyMap[key];
     if (k) { keys[k] = true; e.preventDefault(); }
     if (e.repeat) return;
-    if (key === 'r' && phase !== 'menu') startRace();
+    if (key === 'r' && phase !== 'menu' && !MP.racing) startRace();
     if (key === 'c') switchCam();
     if (key === 'p' || key === 'escape') togglePause();
     if (key === 'h') honk();
@@ -234,6 +237,7 @@
     if (!audio || muted || performance.now() - lastHonk < 500) return;
     lastHonk = performance.now();
     Drivers.honk(char, audio.ctx, audio.ctx.destination);
+    MP.sendHonk();
   }
   function updateSoundBtn() { $('soundBtn').textContent = muted ? '🔇' : '🔊'; }
   $('soundBtn').addEventListener('click', () => {
@@ -286,20 +290,24 @@
   let pausedFrom = null;
   let countdown = 3, gameTime = 0, raceStart = 0, lapStart = 0, lap = 1, lapTimes = [];
   let lastIndex = 0, halfway = false, finishTimer = 0, distSinceFx = 0;
-  let menuAngle = 0;
+  let menuAngle = 0, myFinish = null;
 
-  function placeCarAtStart() {
-    const i = world.N - 3, p = world.path[i], t = world.tang[i];
-    car.x = p.x; car.z = p.z; car.angle = Math.atan2(t.z, t.x);
+  // slot = Startplatz (0 = vorne links, 1 = vorne rechts, 2 = zweite Reihe links …)
+  function placeCarAtStart(slot) {
+    slot = slot || 0;
+    const N = world.N, i = (N - 3 - Math.floor(slot / 2) * 2 + N) % N, p = world.path[i], t = world.tang[i], n = world.norm[i];
+    const side = MP.racing ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
+    car.x = p.x + n.x * side; car.z = p.z + n.z * side; car.angle = Math.atan2(t.z, t.x);
     car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.pitch = 0; car.roll = 0;
     car.y = world.surfaceHeight(car.x, car.z);
     lastIndex = i;
     applyCarToModel();
   }
 
-  function startRace() {
+  function startRace(slot) {
     resetKeys();
-    placeCarAtStart();
+    placeCarAtStart(typeof slot === 'number' ? slot : 0);
+    myFinish = null;
     phase = 'countdown'; countdown = 3;
     lap = 1; lapTimes = []; halfway = false; finishTimer = 0;
     clearParticles();
@@ -318,6 +326,9 @@
   }
 
   function togglePause() {
+    if (MP.racing && phase !== 'menu') { // im Mehrspieler kann man nicht anhalten – die anderen fahren weiter
+      const pm = $('pauseMenu'); pm.style.display = pm.style.display === 'flex' ? 'none' : 'flex'; resetKeys(); return;
+    }
     if (phase === 'race' || phase === 'countdown') {
       pausedFrom = phase; phase = 'paused'; resetKeys();
       $('pauseMenu').style.display = 'flex';
@@ -325,7 +336,7 @@
       phase = pausedFrom; $('pauseMenu').style.display = 'none';
     }
   }
-  document.addEventListener('visibilitychange', () => { if (document.hidden && (phase === 'race' || phase === 'countdown')) togglePause(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !MP.racing && (phase === 'race' || phase === 'countdown')) togglePause(); });
 
   // ---------- Nachrichten ----------
   const msgEl = $('msg');
@@ -407,6 +418,20 @@
       const vn = car.vx * nx + car.vz * nz;
       if (vn < 0) { car.vx -= PHYS.bounce * vn * nx; car.vz -= PHYS.bounce * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x + fx * o - nx; bz = car.z + fz * o - nz; } }
       car.vx *= 0.97; car.vz *= 0.97;
+    }
+    // Rempeln mit den Autos der anderen Spieler
+    if (MP.racing) for (const rc of remoteCars.values()) {
+      if (!rc.visible) continue;
+      const rr = rc.model.collide, rfx = Math.cos(rc.a), rfz = Math.sin(rc.a);
+      for (const o of [cr.off, -cr.off]) for (const q of [rr.off, -rr.off]) {
+        const dx = car.x + fx * o - (rc.x + rfx * q), dz = car.z + fz * o - (rc.z + rfz * q);
+        const d = Math.hypot(dx, dz), min = cr.r + rr.r;
+        if (d >= min || d < 1e-4) continue;
+        const nx = dx / d, nz = dz / d, push = (min - d) * 0.5; // jeder schiebt sich selbst die Hälfte weg
+        car.x += nx * push; car.z += nz * push;
+        const vn = (car.vx - rc.vx) * nx + (car.vz - rc.vz) * nz;
+        if (vn < 0) { car.vx -= 0.75 * vn * nx; car.vz -= 0.75 * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x - nx * cr.r; bz = car.z - nz * cr.r; } }
+      }
     }
     if (bump > 3) {
       crashSound(bump);
@@ -511,11 +536,17 @@
     if (newLap) rec.lap = best;
     setRecord(track.id, rec);
     lastResult = { total, best, newTotal, newLap };
+    myFinish = total;
+    if (MP.racing) MP.sendFinish(total);
     flash('ZIEL!', 1.6); setTimeout(honk, 500);
     beep(880, 0.15); setTimeout(() => beep(1320, 0.3), 160);
   }
   function showResults() {
     const r = lastResult;
+    $('againBtn').style.display = MP.racing ? 'none' : '';
+    $('resMenuBtn').textContent = MP.active ? 'Zur Lobby' : 'Strecke wählen';
+    $('resMP').style.display = MP.racing ? '' : 'none';
+    if (MP.racing) renderStandings();
     $('resTrack').textContent = track.name;
     $('resTotal').innerHTML = fmt(r.total) + (r.newTotal ? ' <span class="badge">Rekord!</span>' : '');
     $('resLaps').innerHTML = lapTimes.map((t, i) =>
@@ -523,8 +554,35 @@
     $('results').style.display = 'flex';
   }
 
+  // ---------- Mehrspieler: Platzierung ----------
+  // Fortschritt: gefahrene Runden + Anteil der aktuellen Runde
+  function myProgress() {
+    if (myFinish != null) return 1000;
+    let f = lastIndex / world.N;
+    if (lapTimes.length === 0 && !halfway && f > 0.5) f -= 1; // vor der Startlinie
+    return lapTimes.length + f;
+  }
+  function standings() {
+    const list = [];
+    for (const p of MP.players.values()) {
+      const me = p.id === MP.myId, buf = MP.remote.get(p.id);
+      const pr = me ? myProgress() : (buf && buf.length ? buf[buf.length - 1].s.pr : -1);
+      list.push({ id: p.id, name: p.name, me, pr, fin: me ? myFinish : MP.finishes.get(p.id), color: (CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0]).color });
+    }
+    list.sort((a, b) => (a.fin != null) !== (b.fin != null) ? (a.fin != null ? -1 : 1) : a.fin != null ? a.fin - b.fin : b.pr - a.pr);
+    return list;
+  }
+  function renderStandings() {
+    const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    $('resMP').innerHTML = '<b>Rangliste</b>' + standings().map((e, k) =>
+      `<div class="mpRes${e.me ? ' me' : ''}" style="--c:${e.color}"><span>${k + 1}.</span><span class="nm">${esc(e.name)}</span><span>${e.fin != null ? fmt(e.fin) : 'fährt noch …'}</span></div>`).join('');
+  }
+  setInterval(() => { if (MP.racing && $('results').style.display === 'flex') renderStandings(); }, 500);
+
   // ---------- Anzeige ----------
   function updateHud() {
+    $('placeRow').style.display = MP.racing ? '' : 'none';
+    if (MP.racing) { const st = standings(); $('place').textContent = (st.findIndex(e => e.me) + 1) + ' / ' + st.length; }
     $('lap').textContent = Math.min(lap, lapsNeeded()) + ' / ' + lapsNeeded();
     const racing = phase === 'race' || (phase === 'paused' && pausedFrom === 'race');
     $('time').textContent = fmt(racing ? gameTime - raceStart : phase === 'finished' ? lastResult.total : 0);
@@ -561,6 +619,11 @@
   function drawMinimap() {
     mctx.clearRect(0, 0, mini.width, mini.height);
     mctx.drawImage(mapImg, 0, 0);
+    for (const rc of remoteCars.values()) {
+      if (!rc.visible) continue;
+      mctx.beginPath(); mctx.arc(mapOX + rc.x * mapScale, mapOZ + rc.z * mapScale, 4, 0, Math.PI * 2);
+      mctx.fillStyle = rc.ch.color; mctx.fill();
+    }
     const x = mapOX + car.x * mapScale, y = mapOZ + car.z * mapScale;
     mctx.beginPath(); mctx.arc(x, y, 5, 0, Math.PI * 2);
     mctx.fillStyle = char.color; mctx.fill(); mctx.lineWidth = 2; mctx.strokeStyle = '#fff'; mctx.stroke();
@@ -754,9 +817,9 @@
   $('hornBtn').addEventListener('click', honk);
   $('resumeBtn').addEventListener('click', togglePause);
   $('restartBtn').addEventListener('click', startRace);
-  $('menuBtn').addEventListener('click', goToMenu);
+  $('menuBtn').addEventListener('click', () => { goToMenu(); if (MP.active) showStep(2); });
   $('againBtn').addEventListener('click', startRace);
-  $('resMenuBtn').addEventListener('click', goToMenu);
+  $('resMenuBtn').addEventListener('click', () => { if (MP.active) { if (MP.isHost) MP.endRace(); goToMenu(); showStep(2); } else goToMenu(); });
 
   // ---------- Game Loop ----------
   let prev = performance.now();
@@ -775,6 +838,7 @@
     } else if (phase !== 'paused') {
       placeCamera(camModes[camMode].fixed ? 1 : 1 - Math.pow(0.004, dt));
     }
+    updateRemotes(dt);
     world.update(dt, camera, carModel.group.position);
     renderer.render(world.scene, camera);
     if (phase !== 'menu') { updateHud(); drawMinimap(); }
@@ -818,10 +882,134 @@
     $('debug').innerHTML = h;
   }
 
+  // ---------- Mehrspieler: andere Autos ----------
+  const remoteCars = new Map(); // id -> { model, ch, x, z, y, a, vx, vz, visible }
+  function nameLabel(name, color) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = color; g.globalAlpha = 0.85;
+    g.beginPath(); g.roundRect ? g.roundRect(8, 8, 240, 48, 16) : g.rect(8, 8, 240, 48); g.fill();
+    g.globalAlpha = 1; g.fillStyle = '#fff'; g.font = 'bold 30px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(name.slice(0, 14), 128, 34);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthWrite: false, transparent: true }));
+    sp.scale.set(3.4, 0.85, 1); sp.renderOrder = 10;
+    return sp;
+  }
+  function getRemote(id) {
+    const p = MP.players.get(id);
+    if (!p || !world) return null;
+    let rc = remoteCars.get(id);
+    if (rc && (rc.char !== p.char || rc.car !== p.car || rc.name !== p.name)) { removeRemote(id); rc = null; }
+    if (!rc) {
+      const ch = CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0], cv = CARS.find(c => c.id === p.car) || CARS[0];
+      const model = buildCarModel(cv, ch);
+      const label = nameLabel(p.name || ch.name, ch.color);
+      label.position.set(0, model.seat[1] + 2.3, 0);
+      model.group.add(label);
+      world.scene.add(model.group);
+      rc = { model, ch, char: p.char, car: p.car, name: p.name, x: 0, z: 0, y: 0, a: 0, vx: 0, vz: 0, visible: false };
+      remoteCars.set(id, rc);
+    }
+    return rc;
+  }
+  function removeRemote(id) {
+    const rc = remoteCars.get(id); if (!rc) return;
+    if (rc.model.group.parent) rc.model.group.parent.remove(rc.model.group);
+    rc.model.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    remoteCars.delete(id);
+  }
+  function clearRemotes() { for (const id of [...remoteCars.keys()]) removeRemote(id); }
+  const lerpAngle = (a, b, f) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * f;
+  // Position zwischen zwei empfangenen Zeitpunkten berechnen (etwas in der Vergangenheit, damit es weich aussieht)
+  function interpolate(buf, t) {
+    if (!buf.length) return null;
+    const last = buf[buf.length - 1];
+    if (t >= last.time) {
+      const e = Math.min(0.25, (t - last.time) / 1000), s = last.s;
+      return Object.assign({}, s, { x: s.x + s.vx * e, z: s.z + s.vz * e, age: t - last.time });
+    }
+    let k = buf.length - 1;
+    while (k > 0 && buf[k - 1].time > t) k--;
+    if (k === 0) return Object.assign({ age: 0 }, buf[0].s);
+    const A = buf[k - 1], B = buf[k], f = (t - A.time) / (B.time - A.time), a = A.s, b = B.s;
+    const mix = key => a[key] + (b[key] - a[key]) * f;
+    return { x: mix('x'), z: mix('z'), y: mix('y'), vx: mix('vx'), vz: mix('vz'), sp: mix('sp'), st: mix('st'), p: mix('p'), r: mix('r'), a: lerpAngle(a.a, b.a, f), pr: b.pr, age: 0 };
+  }
+  function updateRemotes(dt) {
+    if (!MP.racing || phase === 'menu') { if (remoteCars.size) clearRemotes(); return; }
+    const t = performance.now() - 120;
+    for (const id of [...remoteCars.keys()]) if (!MP.players.has(id)) removeRemote(id);
+    for (const [id, buf] of MP.remote) {
+      if (id === MP.myId) continue;
+      const rc = getRemote(id); if (!rc) continue;
+      const s = interpolate(buf, t);
+      rc.visible = !!s && s.age < 3000;
+      rc.model.group.visible = rc.visible;
+      if (!rc.visible) continue;
+      Object.assign(rc, { x: s.x, z: s.z, y: s.y, a: s.a, vx: s.vx, vz: s.vz });
+      rc.model.group.position.set(s.x, s.y, s.z);
+      rc.model.group.rotation.set(s.r || 0, -s.a, s.p || 0, 'YZX');
+      for (const fp of rc.model.frontPivots) fp.rotation.y = -(s.st || 0);
+      for (const w of rc.model.wheels) w.rotation.z -= (s.sp || 0) * dt / rc.model.wheelR;
+    }
+  }
+  const r2 = v => Math.round(v * 100) / 100;
+
+  MP.getInfo = () => ({ name: MP.myName() || char.name, char: char.id, car: carCfg.id });
+  MP.getState = () => (phase === 'race' || phase === 'countdown' || phase === 'finished' || phase === 'paused') ? {
+    x: r2(car.x), z: r2(car.z), y: r2(car.y), a: r2(car.angle), p: r2(car.pitch), r: r2(car.roll),
+    vx: r2(car.vx), vz: r2(car.vz), sp: r2(car.speed), st: r2(car.steerVis), pr: r2(myProgress())
+  } : null;
+  MP.onStart = (trackId, slot, laps) => {
+    const t = TRACKS.find(x => x.id === trackId) || TRACKS[0];
+    $('loading').style.display = 'flex'; $('loading').textContent = 'Lade ' + t.name + ' …';
+    setTimeout(() => {
+      if (!track || track.id !== t.id) loadTrack(t);
+      $('loading').style.display = 'none';
+      ensureAudio();
+      startRace(slot);
+    }, 30);
+  };
+  MP.onHonk = id => {
+    const p = MP.players.get(id);
+    if (!p || !audio || muted) return;
+    const g = audio.ctx.createGain(); g.gain.value = 0.5; g.connect(audio.ctx.destination);
+    Drivers.honk(CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0], audio.ctx, g);
+  };
+  MP.onLeave = (id, wasRacing) => {
+    if (id) { removeRemote(id); return; }
+    clearRemotes();
+    if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); }
+  };
+  MP.onLobby = () => { if (phase === 'menu') updateModeUI(); };
+  MP.onRaceEnd = () => { if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); } }; // Gastgeber ist zurück in der Lobby
+
+  // Allein oder mit Freunden?
+  let mpMode = false;
+  function setMode(multi) {
+    mpMode = multi;
+    updateModeUI();
+  }
+  function updateModeUI() {
+    $('modeSolo').classList.toggle('active', !mpMode);
+    $('modeMP').classList.toggle('active', mpMode);
+    $('tab3label').textContent = mpMode ? 'Lobby' : 'Strecke';
+    $('tab3sub').textContent = mpMode ? (MP.active ? 'Raum ' + (document.getElementById('mpCode').textContent) : 'mit Freunden') : "los geht's";
+    $('trackGrid').style.display = mpMode ? 'none' : '';
+    $('lobby').style.display = mpMode ? '' : 'none';
+    $('nextToTrack').textContent = mpMode ? 'Weiter: Lobby →' : 'Weiter: Strecke wählen →';
+  }
+  $('modeSolo').addEventListener('click', () => { setMode(false); });
+  $('modeMP').addEventListener('click', () => { setMode(true); showStep(2); });
+  $('mpName').addEventListener('change', () => MP.updateInfo());
+  const invited = MP.init();
+  setMode(invited);
+
   // Start: erste Strecke als Menü-Hintergrund laden
   loadTrack(TRACKS[0]);
   placeCarAtStart();
   goToMenu();
+  if (invited) showStep(2);
   $('loading').style.display = 'none';
   requestAnimationFrame(loop);
 

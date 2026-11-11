@@ -80,6 +80,7 @@
   .btn { pointer-events: auto; width: 78px; height: 78px; border-radius: 50%; background: rgba(255,255,255,.2);
     border: 2px solid rgba(255,255,255,.5); font-size: 30px; display: flex; align-items: center; justify-content: center; color: #fff; }
   .btn.on { background: rgba(255,213,74,.6); }
+  @media (max-width: 1050px) { #help { display: none !important; } }
   @media (pointer: coarse) { #mini { top: calc(64px + var(--st)); bottom: auto; } #hud { font-size: 13px; padding: 8px 10px; } #hud span.l { min-width: 92px; } }
 
   /* Overlays */
@@ -107,6 +108,35 @@
   #carGrid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
   .diff { float: right; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; margin-top: 6px; letter-spacing: .03em; filter: none; }
   .diff.easy { background: #43a047; } .diff.mid { background: #f9a825; color: #222; } .diff.hard { background: #e53935; }
+  #modes { display: flex; gap: 6px; margin-top: 10px; background: rgba(10,14,30,.6); padding: 4px; border-radius: 999px; }
+  #modes button { border: 0; border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 800; color: #fff; background: transparent; }
+  #modes button.active { background: linear-gradient(90deg, #ff7043, #ff2bd6); }
+  #lobby { max-width: 620px; margin: 0 auto; }
+  .mpBox { background: rgba(10,14,30,.75); border: 2px solid rgba(255,255,255,.18); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .mpLabel { font-size: 13px; font-weight: 700; display: flex; flex-direction: column; gap: 4px; }
+  .mpLabel small { font-weight: 400; opacity: .7; }
+  .mpBox input { font: inherit; font-size: 17px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); background: rgba(0,0,0,.35); color: #fff; touch-action: manipulation; user-select: text; -webkit-user-select: text; }
+  .mpBox .next { margin: 0; }
+  .mpOr { text-align: center; font-size: 13px; opacity: .7; margin-top: 4px; }
+  .mpJoinRow { display: flex; gap: 8px; }
+  .mpJoinRow input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .3em; text-align: center; font-weight: 800; }
+  .mpCodeRow { display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .mpCodeRow b { font-size: 34px; letter-spacing: .25em; color: #ffd54a; }
+  .mpCodeRow button { border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 800; color: #fff; background: #3a4566; }
+  #mpPlayers { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+  .mpPlayer { display: grid; grid-template-columns: 26px 1fr; align-items: center; column-gap: 6px; padding: 6px 10px; border-radius: 10px; background: linear-gradient(90deg, var(--c, #333), rgba(0,0,0,.3)); font-size: 14px; }
+  .mpPlayer b { grid-row: span 2; font-size: 18px; text-align: center; }
+  .mpPlayer .sub { font-size: 11px; opacity: .85; }
+  .mpPlayer.empty { background: rgba(255,255,255,.05); opacity: .5; }
+  #mpTracks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mpTrack { border: 2px solid rgba(255,255,255,.2); border-radius: 10px; padding: 6px 10px; background: rgba(0,0,0,.35); color: #fff; font-weight: 700; font-size: 13px; }
+  .mpTrack span { margin-right: 4px; } .mpTrack.sel { border-color: #ffd54a; background: rgba(255,213,74,.2); } .mpTrack:disabled { opacity: .35; }
+  #mpWait { text-align: center; opacity: .85; font-size: 14px; }
+  #mpStatus { text-align: center; margin-top: 10px; font-size: 14px; min-height: 1em; }
+  #mpStatus.err { color: #ff8a80; font-weight: 700; }
+  #resMP { margin-top: 10px; text-align: left; font-size: 15px; }
+  .mpRes { display: grid; grid-template-columns: 28px 1fr auto; gap: 6px; padding: 5px 10px; border-radius: 8px; margin-top: 4px; background: linear-gradient(90deg, var(--c), rgba(0,0,0,.25)); font-variant-numeric: tabular-nums; }
+  .mpRes.me { outline: 2px solid #ffd54a; }
   .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
   #devPanel { z-index: 20; align-items: stretch; }
   .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
@@ -157,10 +187,14 @@
     <button id="installBtn">📲 Als App installieren</button>
     <div id="iosHint">📲 <b>Als App installieren:</b> unten auf <b>Teilen</b> tippen und dann <b>„Zum Home-Bildschirm“</b>.</div>
   </div>
+  <div id="modes">
+    <button id="modeSolo" class="active">🏎️ Alleine</button>
+    <button id="modeMP">👥 Mit Freunden</button>
+  </div>
   <div id="steps">
     <button class="tab active"><b>1</b>Fahrer<small id="sumChar"></small></button>
     <button class="tab"><b>2</b>Fahrzeug<small id="sumCar"></small></button>
-    <button class="tab"><b>3</b>Strecke<small>los geht's</small></button>
+    <button class="tab"><b>3</b><span id="tab3label">Strecke</span><small id="tab3sub">los geht's</small></button>
   </div>
   <section class="page">
     <div id="charPanel">
@@ -191,10 +225,28 @@
       </div>
       <div id="carGrid"></div>
     </div>
-    <button class="next" data-go="2">Weiter: Strecke wählen →</button>
+    <button class="next" data-go="2" id="nextToTrack">Weiter: Strecke wählen →</button>
   </section>
   <section class="page" style="display:none">
     <div id="trackGrid"></div>
+    <div id="lobby" style="display:none">
+      <div id="mpConnect" class="mpBox">
+        <label class="mpLabel">Dein Name<input id="mpName" maxlength="16" placeholder="z.B. Tim"></label>
+        <button id="mpHost" class="next">🏁 Rennen erstellen</button>
+        <div class="mpOr">oder einem Rennen beitreten</div>
+        <div class="mpJoinRow"><input id="mpJoinCode" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off"><button id="mpJoin" class="next">Beitreten</button></div>
+      </div>
+      <div id="mpRoom" class="mpBox" style="display:none">
+        <div class="mpCodeRow"><span>Raum-Code</span><b id="mpCode"></b><button id="mpInvite">📤 Einladen</button></div>
+        <div id="mpPlayers"></div>
+        <div class="mpLabel">Strecke <small>(wählt der Gastgeber 👑)</small></div>
+        <div id="mpTracks"></div>
+        <button id="mpStart" class="next">🚦 Rennen starten</button>
+        <div id="mpWait"></div>
+        <button id="mpLeave" class="devOpen">Raum verlassen</button>
+      </div>
+      <div id="mpStatus"></div>
+    </div>
   </section>
   <button id="devBtn" class="devOpen">🛠 Entwicklermodus<span class="devBadge"></span></button>
 </div>
@@ -206,6 +258,7 @@
   <div><span class="l">Beste Runde</span><span id="best">–</span></div>
   <div><span class="l">Tempo</span><span id="speed">0</span> km/h</div>
   <div><span class="l">Belag</span><span id="surface">Asphalt</span></div>
+  <div id="placeRow" style="display:none"><span class="l">Platz</span><span id="place"></span></div>
 </div>
 <div id="help" class="panel" style="display:none">
   <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> fahren · <kbd>H</kbd> Hupe · <kbd>C</kbd> Kamera · <kbd>P</kbd> Pause · <kbd>R</kbd> Neustart
@@ -255,6 +308,7 @@
     <div id="resTrack" style="opacity:.8"></div>
     <div id="resTotal"></div>
     <div id="resLaps"></div>
+    <div id="resMP" style="display:none"></div>
     <button class="big primary" id="againBtn">Nochmal fahren</button>
     <button class="big" id="resMenuBtn">Strecke wählen</button>
   </div>
@@ -272,6 +326,8 @@
 <script src="drivers.js"></script>
 <script src="engine.js"></script>
 <script src="car.js"></script>
+<script src="peerjs.min.js"></script>
+<script src="mp.js"></script>
 <script src="devmode.js"></script>
 <script src="game.js"></script>
 <script>
