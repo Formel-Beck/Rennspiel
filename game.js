@@ -585,7 +585,12 @@
     }
     const cache = {};
     return {
-      portrait(c) { return cache[c.id] || (cache[c.id] = shot(Drivers.build(c), 150, 150, [1.7, 0.95, 0.75], [0, 0.66, 0])); },
+      portrait(c) {
+        if (cache[c.id]) return cache[c.id];
+        // Kamera auf den Kopf richten (funktioniert für eingebaute und eigene Modelle)
+        const d = Drivers.build(c), top = new THREE.Box3().setFromObject(d).max.y, y = top - 0.32;
+        return (cache[c.id] = shot(d, 150, 150, [1.7, y + 0.3, 0.75], [0, y, 0]));
+      },
       car(v, c) { return shot(buildCarModel(v, c).group, 460, 280, [5.2, 2.6, 4.6], [0, 0.95, 0]); },
       vehicle(v, c) { const k = v.id + '|' + c.id; return cache[k] || (cache[k] = shot(buildCarModel(v, c).group, 180, 120, [5.6, 2.8, 5.0], [0, 0.9, 0])); },
       forget(id) { for (const k in cache) if (k === id || k.endsWith('|' + id)) delete cache[k]; }

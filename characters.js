@@ -24,6 +24,7 @@ window.CHARACTERS = [
   { id: 'beck', name: 'Johanal Beck', title: 'Revisor der BECK GROUP',
     info: 'Schwergewicht mit Dreadlocks. Etwas mehr Endtempo, etwas träger beim Start.',
     color: '#2f5fb3', number: 'B', model: 'beck', horn: 'tuba',
+    glb: 'beck.glb', glbHeight: 1.15, glbY: -0.12, // sitzt schon im Schneidersitz
     stats: { top: 1.04, accel: 0.97, handling: 1.0, grip: 1.0, offroad: 1.0 } },
   { id: 'orla', name: 'Orla Venn', title: 'Funkerin auf Ostwacht',
     info: 'Die Allrounderin: ein bisschen mehr Lenkung und Grip. Hupt mit vier Funk-Impulsen.',
@@ -36,6 +37,7 @@ window.CHARACTERS = [
   { id: 'locken', name: 'Der Lockenkopf', title: 'Schreit, wenn man ihm zu nahe kommt',
     info: 'Bester Start – und ein Schrei als Hupe.',
     color: '#8e44ad', number: 'L', model: 'locken', horn: 'schrei',
+    glb: 'locken.glb', glbHeight: 0.8, glbY: 0.32, // nur Kopf und Schultern
     stats: { top: 0.98, accel: 1.07, handling: 1.0, grip: 1.0, offroad: 1.0 } },
   { id: 'maske', name: 'Der Maskierte', title: 'Niemand kennt sein Gesicht',
     info: 'Lenkt am schärfsten durch die Kurven.',

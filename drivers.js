@@ -177,7 +177,13 @@ window.Drivers = (() => {
         const wrap = new THREE.Group();
         wrap.rotation.y = c.glbRotY != null ? c.glbRotY : Math.PI / 2; // glTF schaut nach +Z, unser Fahrer nach +X
         wrap.add(root);
-        wrap.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+        wrap.traverse(o => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          // Farben so lassen, wie sie in der Datei sind (passt zum Licht im Spiel)
+          const m = o.material;
+          if (m && m.map) { m.map.encoding = THREE.LinearEncoding; m.needsUpdate = true; }
+        });
         glbCache[c.id] = wrap;
         onLoaded && onLoaded(c);
       }, undefined, err => console.warn('Modell konnte nicht geladen werden:', c.glb, err));
