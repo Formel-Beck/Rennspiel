@@ -180,7 +180,7 @@
     if (!audio) return;
     // Motor nur während Countdown und Rennen – im Ziel geht er aus
     const active = !muted && !document.hidden && (phase === 'race' || phase === 'countdown');
-    audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active);
+    audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active, car.slip, Math.sin(car.pitch));
   }
   // App verlassen oder Bildschirm aus: alle Töne sofort anhalten
   function suspendAudio() { if (audio) try { audio.ctx.suspend(); } catch (e) {} }

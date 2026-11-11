@@ -8,7 +8,7 @@
 //  Neue Dateien auch in die Liste FILES eintragen!
 //  Alle Dateien liegen im selben Ordner (keine Unterordner).
 // =====================================================
-const VERSION = 'rennspiel-v5';
+const VERSION = 'rennspiel-v6';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png', 'favicon.png',

@@ -4,7 +4,7 @@
 //  (Zündungen) hintereinander. Wir schreiben ein paar Dutzend
 //  solche Zündungen in einen Ton-Speicher und spielen ihn in
 //  einer Schleife ab – je höher die Drehzahl, desto schneller.
-//  Dazu gibt es 5 Gänge: beim Hochschalten fällt die Drehzahl.
+//  Dazu gibt es 3 Gänge: beim Hochschalten fällt die Drehzahl.
 // =====================================================
 window.EngineSound = function (ctx, out) {
   const sr = ctx.sampleRate, BASE = 40, PULSES = 64;
@@ -42,22 +42,50 @@ window.EngineSound = function (ctx, out) {
   master.connect(out);
   src.start(); sub.start();
 
-  const GEARS = [0.16, 0.32, 0.5, 0.7, 1.0]; // bis zu welchem Anteil vom Höchsttempo jeder Gang reicht
-  let rpm = 0.12;
+  // 3 Gänge. Die Autos sind sehr schnell auf Höchsttempo – darum wenige Gänge
+  // mit grossem Drehzahlbereich, sonst würde der Motor ständig schalten.
+  //   lo/hi = Tempo-Bereich des Gangs (Anteil vom Höchsttempo)
+  //   up    = ab hier wird hochgeschaltet, down = darunter runtergeschaltet
+  const GEARS = [
+    { lo: 0.0,  hi: 0.42, up: 0.38, down: -1 },
+    { lo: 0.3,  hi: 0.78, up: 0.72, down: 0.28 },
+    { lo: 0.62, hi: 1.08, up: 99,   down: 0.58 }
+  ];
+  let gear = 0, rpm = 0.12, shiftT = 0;
 
-  // speed/maxSpeed = Tempo, throttle = Gas (0 oder 1), active = Motor hörbar?
-  function update(dt, speed, maxSpeed, throttle, active) {
-    const sf = Math.min(1.15, Math.abs(speed) / maxSpeed);
-    let lo = 0, g = 0;
-    while (g < GEARS.length - 1 && sf > GEARS[g]) { lo = GEARS[g]; g++; }
-    const inGear = Math.min(1, (sf - lo) / (GEARS[g] - lo));
-    const target = sf < 0.02 ? (throttle ? 0.35 : 0.12) : 0.28 + 0.72 * inGear;
-    rpm += (target - rpm) * Math.min(1, dt * (target < rpm ? 5 : 9));
-    const now = ctx.currentTime, rate = 0.65 + rpm * 3.6;
+  // speed/maxSpeed = Tempo, throttle = Gas (0/1), active = hörbar?
+  // slip = seitliches Rutschen (m/s), slope = Steigung (-1 bis 1)
+  function update(dt, speed, maxSpeed, throttle, active, slip, slope) {
+    const sf = Math.min(1.1, Math.abs(speed) / maxSpeed);
+    // Schalten (mit Abstand zwischen hoch und runter, damit er nicht hin und her springt)
+    if (shiftT <= 0) {
+      if (sf > GEARS[gear].up && gear < GEARS.length - 1) { gear++; shiftT = 0.22; }
+      else if (sf < GEARS[gear].down && gear > 0) { gear--; shiftT = 0.12; }
+    }
+    shiftT -= dt;
+    const G = GEARS[gear];
+    const inGear = Math.max(0, Math.min(1, (sf - G.lo) / (G.hi - G.lo)));
+    let target;
+    if (sf < 0.02) target = throttle ? 0.42 : 0.12;           // Stand: Leerlauf oder Gas geben
+    else target = 0.3 + 0.62 * inGear;
+    if (throttle && sf < 0.18) target += 0.15 * (1 - sf / 0.18); // Anfahren: Räder drehen kurz durch
+    target += Math.min(0.12, Math.abs(slip || 0) * 0.02);       // Rutschen: Drehzahl geht hoch
+    if (throttle) target += 0.04;
+    // Der Motor dreht weich hoch und fällt beim Schalten schnell ab
+    const k = shiftT > 0 ? 14 : (target > rpm ? 3.2 : 4.5);
+    rpm += (target - rpm) * Math.min(1, dt * k);
+    rpm = Math.min(1.05, rpm);
+
+    const load = Math.max(0, slope || 0) * 4;                  // bergauf: angestrengter
+    const shifting = shiftT > 0 && throttle;                   // beim Schalten kurz vom Gas
+    const now = ctx.currentTime, rate = 0.6 + rpm * 3.4;
     src.playbackRate.setTargetAtTime(rate, now, 0.03);
     sub.frequency.setTargetAtTime(BASE * rate * 0.5, now, 0.03);
-    filter.frequency.setTargetAtTime(350 + rpm * 1800 + throttle * 900, now, 0.05);
-    master.gain.setTargetAtTime(active ? 0.1 + rpm * 0.06 + throttle * 0.05 : 0, now, active ? 0.05 : 0.3);
+    filter.frequency.setTargetAtTime(320 + rpm * 1700 + (shifting ? 0 : throttle * (900 + load * 600)), now, 0.04);
+    const vol = shifting ? 0.07 : 0.09 + rpm * 0.06 + throttle * 0.05 + load * 0.02;
+    master.gain.setTargetAtTime(active ? vol : 0, now, active ? 0.04 : 0.3);
   }
-  return { update };
+  // Für Tests: Gang und Drehzahl ablesen
+  function state() { return { gear: gear + 1, rpm }; }
+  return { update, state };
 };
