@@ -8,11 +8,11 @@
 //  Neue Dateien auch in die Liste FILES eintragen!
 //  Alle Dateien liegen im selben Ordner (keine Unterordner).
 // =====================================================
-const VERSION = 'rennspiel-v7';
+const VERSION = 'rennspiel-v8';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png', 'favicon.png',
-  'three.min.js',
+  'three.min.js', 'GLTFLoader.js',
   'themes.js', 'tracks.js', 'cars.js', 'characters.js', 'surfaces.js',
   'props.js', 'world.js', 'drivers.js', 'engine.js', 'car.js', 'devmode.js', 'game.js'
 ];

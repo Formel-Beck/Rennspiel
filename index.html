@@ -28,20 +28,20 @@
     filter: drop-shadow(0 4px 12px rgba(0,0,0,.5)); }
   #menu .sub { opacity: .9; margin-bottom: 20px; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
   .step { width: 100%; max-width: 1050px; font-size: 18px; font-weight: 800; margin: 18px 0 10px; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
-  #charPanel { width: 100%; max-width: 1050px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
-  @media (max-width: 760px) { #charPanel { grid-template-columns: 1fr; } }
-  #charDetail { background: rgba(10,14,30,.72); border: 2px solid rgba(255,255,255,.18); border-radius: 18px; padding: 12px; display: flex; gap: 12px; align-items: center; }
-  #charImg { width: 46%; max-width: 260px; aspect-ratio: 46 / 28; object-fit: contain; flex-shrink: 0; }
-  #charText { flex: 1; min-width: 0; }
-  #charName { font-size: 22px; font-weight: 900; }
-  #charTitle { font-size: 12px; color: #ffd54a; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin: 2px 0 6px; }
-  #charInfo { font-size: 13px; opacity: .9; margin-bottom: 8px; }
+  #charPanel, #carPanel { width: 100%; max-width: 1050px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 760px) { #charPanel, #carPanel { grid-template-columns: 1fr; } }
+  #charDetail, #carDetail { background: rgba(10,14,30,.72); border: 2px solid rgba(255,255,255,.18); border-radius: 18px; padding: 12px; display: flex; gap: 12px; align-items: center; }
+  #carImg { width: 46%; max-width: 260px; aspect-ratio: 46 / 28; object-fit: contain; flex-shrink: 0; }
+  #charText, #carText { flex: 1; min-width: 0; }
+  #charName, #carName { font-size: 22px; font-weight: 900; }
+  #charTitle, #carType { font-size: 12px; color: #ffd54a; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin: 2px 0 6px; }
+  #charInfo, #carInfo { font-size: 13px; opacity: .9; margin-bottom: 8px; }
   .st { display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin: 3px 0; gap: 8px; }
   .st b { display: flex; gap: 3px; }
   .st i { width: 16px; height: 8px; border-radius: 3px; background: rgba(255,255,255,.18); }
   .st i.on { background: linear-gradient(90deg, #ffd54a, #ff7043); }
   #hornTest { margin-top: 8px; border: 0; border-radius: 10px; padding: 8px 12px; color: #fff; background: #3a4566; font-weight: 700; }
-  #charGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; align-content: start; }
+  #charGrid, #carGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; align-content: start; }
   .char { border: 2px solid rgba(255,255,255,.2); border-radius: 14px; padding: 6px 4px 8px; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 4px;
     background: linear-gradient(180deg, var(--c), rgba(10,14,30,.85) 75%); font-size: 12px; font-weight: 700; text-align: center; transition: transform .12s; }
   .char img { width: 72px; height: 72px; }
@@ -91,6 +91,22 @@
   #resTotal { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 4px 0 10px; }
   #resLaps { font-variant-numeric: tabular-nums; line-height: 1.7; opacity: .9; }
   #surface.warn { color: #ff6b6b; font-weight: 800; }
+  #charImg { width: 40%; max-width: 170px; aspect-ratio: 1; object-fit: contain; flex-shrink: 0; }
+  #steps { display: flex; gap: 6px; width: 100%; max-width: 1050px; margin: 14px 0 12px; }
+  #steps .tab { flex: 1; border: 2px solid rgba(255,255,255,.2); background: rgba(10,14,30,.7); color: #fff; border-radius: 14px; padding: 8px 6px;
+    font-size: 15px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  #steps .tab b { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,.2); align-items: center; justify-content: center; font-size: 13px; margin-bottom: 2px; }
+  #steps .tab small { font-size: 11px; font-weight: 600; opacity: .75; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #steps .tab.active { border-color: #ffd54a; background: linear-gradient(180deg, rgba(255,112,67,.45), rgba(255,43,214,.3)); }
+  #steps .tab.active b { background: #ffd54a; color: #222; }
+  .page { width: 100%; max-width: 1050px; }
+  .next { display: block; margin: 14px auto 0; border: 0; border-radius: 14px; padding: 12px 22px; font-size: 16px; font-weight: 800; color: #fff; background: linear-gradient(90deg, #ff7043, #ff2bd6); }
+  .chip { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; margin: 2px 4px 2px 0; background: rgba(255,255,255,.15); }
+  .chip.up { background: rgba(76,175,80,.35); } .chip.down { background: rgba(244,67,54,.3); }
+  .vehicle img { width: 110px; height: 74px; } .vehicle small { display: block; font-size: 10px; font-weight: 600; opacity: .8; }
+  #carGrid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
+  .diff { float: right; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; margin-top: 6px; letter-spacing: .03em; filter: none; }
+  .diff.easy { background: #43a047; } .diff.mid { background: #f9a825; color: #222; } .diff.hard { background: #e53935; }
   .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
   #devPanel { z-index: 20; align-items: stretch; }
   .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
@@ -141,22 +157,45 @@
     <button id="installBtn">📲 Als App installieren</button>
     <div id="iosHint">📲 <b>Als App installieren:</b> unten auf <b>Teilen</b> tippen und dann <b>„Zum Home-Bildschirm“</b>.</div>
   </div>
-  <div class="step">1 · Wähle deinen Fahrer</div>
-  <div id="charPanel">
-    <div id="charDetail">
-      <img id="charImg" alt="">
-      <div id="charText">
-        <div id="charName"></div>
-        <div id="charTitle"></div>
-        <div id="charInfo"></div>
-        <div id="charStats"></div>
-        <button id="hornTest">📣 Hupe testen</button>
-      </div>
-    </div>
-    <div id="charGrid"></div>
+  <div id="steps">
+    <button class="tab active"><b>1</b>Fahrer<small id="sumChar"></small></button>
+    <button class="tab"><b>2</b>Fahrzeug<small id="sumCar"></small></button>
+    <button class="tab"><b>3</b>Strecke<small>los geht's</small></button>
   </div>
-  <div class="step">2 · Wähle eine Strecke</div>
-  <div id="trackGrid"></div>
+  <section class="page">
+    <div id="charPanel">
+      <div id="charDetail">
+        <img id="charImg" alt="">
+        <div id="charText">
+          <div id="charName"></div>
+          <div id="charTitle"></div>
+          <div id="charInfo"></div>
+          <div id="charStats"></div>
+          <button id="hornTest">📣 Hupe testen</button>
+        </div>
+      </div>
+      <div id="charGrid"></div>
+    </div>
+    <button class="next" data-go="1">Weiter: Fahrzeug wählen →</button>
+  </section>
+  <section class="page" style="display:none">
+    <div id="carPanel">
+      <div id="carDetail">
+        <img id="carImg" alt="">
+        <div id="carText">
+          <div id="carName"></div>
+          <div id="carType"></div>
+          <div id="carInfo"></div>
+          <div id="carStats"></div>
+        </div>
+      </div>
+      <div id="carGrid"></div>
+    </div>
+    <button class="next" data-go="2">Weiter: Strecke wählen →</button>
+  </section>
+  <section class="page" style="display:none">
+    <div id="trackGrid"></div>
+  </section>
   <button id="devBtn" class="devOpen">🛠 Entwicklermodus<span class="devBadge"></span></button>
 </div>
 
@@ -222,6 +261,7 @@
 </div>
 
 <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 <script src="themes.js"></script>
 <script src="tracks.js"></script>
 <script src="cars.js"></script>

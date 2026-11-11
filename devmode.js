@@ -11,17 +11,16 @@ window.DevMode = (() => {
   let targets = {}, onChange = () => {}, defaults = {}, saved = {};
   const KEY = 'rennspiel-dev';
 
-  const kmh = v => Math.round(v * 3) + ' km/h';
   const times = v => '×' + (+v).toFixed(2);
 
   function schema() {
     const surf = Object.keys(SURFACES).map(k => ['surf.' + k + '.grip', SURFACES[k].name.replace('!', ''), 0.02, 1.5, 0.01]);
     return [
-      { title: '🚗 Auto', items: [
-        ['car.maxSpeed', 'Höchsttempo', 20, 150, 1, kmh],
-        ['car.accel', 'Beschleunigung', 5, 80, 1],
-        ['car.brake', 'Bremskraft', 10, 150, 1],
-        ['car.handling', 'Lenkung', 0.5, 4, 0.05],
+      { title: '🚗 Fahrzeug (wirkt auf alle Fahrzeuge)', items: [
+        ['tune.maxSpeed', 'Höchsttempo', 0.3, 3, 0.05, times],
+        ['tune.accel', 'Beschleunigung', 0.3, 3, 0.05, times],
+        ['tune.brake', 'Bremskraft', 0.3, 3, 0.05, times],
+        ['tune.handling', 'Lenkung', 0.3, 3, 0.05, times],
         ['phys.ignoreStats', 'Fahrer-Werte ignorieren', 'bool']] },
       { title: '🧲 Fahrphysik', items: [
         ['phys.gripAll', 'Grip überall', 0.2, 2, 0.05, times],

@@ -36,9 +36,12 @@
   addEventListener('resize', resize);
 
   // ---------- Auto ----------
-  const carCfg = CARS[0];
-  let char = CHARACTERS[0];
-  try { char = CHARACTERS.find(c => c.id === localStorage.getItem('rennspiel-char')) || char; } catch (e) {}
+  // Gewähltes Fahrzeug und gewählter Fahrer (werden gespeichert)
+  let carCfg = CARS[0], char = CHARACTERS[0];
+  try {
+    carCfg = CARS.find(c => c.id === localStorage.getItem('rennspiel-car')) || carCfg;
+    char = CHARACTERS.find(c => c.id === localStorage.getItem('rennspiel-char')) || char;
+  } catch (e) {}
   let carModel = buildCarModel(carCfg, char);
   const headlight = new THREE.SpotLight('#fff3cf', 1.8, 80, 0.55, 0.5, 1);
   headlight.position.set(1.8, 1, 0);
@@ -47,22 +50,36 @@
 
   // Einstellbare Werte (der Entwicklermodus ändert sie)
   const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
+  const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
   const RACE = { laps: 0 }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
   const lapsNeeded = () => RACE.laps || track.laps;
 
-  // Fahrwerte = Auto × Fahrer
+  // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
   let perf = {};
   function computePerf() {
     const st = PHYS.ignoreStats ? { top: 1, accel: 1, handling: 1, grip: 1, offroad: 1 } : char.stats;
-    perf = { maxSpeed: carCfg.maxSpeed * st.top, accel: carCfg.accel * st.accel, brake: carCfg.brake,
-             handling: carCfg.handling * st.handling, grip: st.grip, offroad: st.offroad };
+    const v = carCfg;
+    perf = {
+      maxSpeed: v.maxSpeed * st.top * TUNE.maxSpeed, accel: v.accel * st.accel * TUNE.accel,
+      brake: v.brake * TUNE.brake, handling: v.handling * st.handling * TUNE.handling,
+      grip: v.grip * st.grip, loose: v.loose * st.grip, offroad: v.offroad * st.offroad
+    };
   }
   computePerf();
 
-  // Fahrer wechseln: Auto mit neuer Figur und Farbe bauen
+  // Fahrer oder Fahrzeug wechseln: Modell neu bauen
   function setCharacter(c) {
     char = c;
     try { localStorage.setItem('rennspiel-char', c.id); } catch (e) {}
+    rebuildCar();
+  }
+  function setVehicle(v) {
+    carCfg = v;
+    try { localStorage.setItem('rennspiel-car', v.id); } catch (e) {}
+    rebuildCar();
+    if (audio) { audio.engine.stop(); audio.engine = EngineSound(audio.ctx, audio.ctx.destination, carCfg.sound); }
+  }
+  function rebuildCar() {
     const parent = carModel.group.parent;
     if (parent) parent.remove(carModel.group);
     carModel.group.remove(headlight, headlight.target);
@@ -171,7 +188,7 @@
     try {
       if (audio) { audio.ctx.resume(); return; }
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      audio = { ctx, engine: EngineSound(ctx, ctx.destination) };
+      audio = { ctx, engine: EngineSound(ctx, ctx.destination, carCfg.sound) };
     } catch (e) { audio = null; }
   }
   function beep(freq, dur) {
@@ -243,8 +260,8 @@
     const m = camModes[camMode];
     if (m.fixed) { // fest auf der Motorhaube
       carModel.group.updateMatrixWorld();
-      camera.position.copy(carModel.group.localToWorld(v1.set(0.85, 1.55, 0)));
-      camera.lookAt(carModel.group.localToWorld(v2.set(20, 1.1, 0)));
+      camera.position.copy(carModel.group.localToWorld(v1.set(carModel.hoodCam[0], carModel.hoodCam[1], 0)));
+      camera.lookAt(carModel.group.localToWorld(v2.set(20, carModel.hoodCam[1] - 0.45, 0)));
       return;
     }
     // Die Kamera bleibt immer gleich weit hinter dem Auto und dreht sich nur sanft mit
@@ -252,15 +269,16 @@
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     camYaw += diff * blend;
     const dx = Math.cos(camYaw), dz = Math.sin(camYaw);
-    let back = m.back; // steht ein Haus oder Baum im Weg? Dann näher ran
+    const big = carModel.seat[1] - 1.1; // grosse Fahrzeuge: Kamera höher und weiter weg, kleine: näher
+    let back = m.back + big * 1.6; // steht ein Haus oder Baum im Weg? Dann näher ran
     for (let k = 0; k < 6 && world.collide(car.x - dx * back, car.z - dz * back, 0.8); k++) back *= 0.7;
     camTarget.set(car.x - dx * back, 0, car.z - dz * back);
-    const wantY = Math.max(car.y + m.up, world.surfaceHeight(camTarget.x, camTarget.z) + 1.2);
+    const wantY = Math.max(car.y + m.up + big * 0.9, world.surfaceHeight(camTarget.x, camTarget.z) + 1.2);
     camHeight = blend >= 1 ? wantY : camHeight + (wantY - camHeight) * Math.min(1, blend * 1.5);
     camTarget.y = camHeight;
     camera.position.copy(camTarget);
     if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; shake *= 0.88; }
-    camera.lookAt(v2.set(car.x + dx * m.look, car.y + m.lookUp, car.z + dz * m.look));
+    camera.lookAt(v2.set(car.x + dx * m.look, car.y + m.lookUp + big * 0.6, car.z + dz * m.look));
   }
 
   // ---------- Spielzustand ----------
@@ -347,11 +365,12 @@
 
     // Steigung: bergauf langsamer, bergab schneller
     const slope = Math.sin(car.pitch);
-    const off = sf.topAbs ? perf.offroad : 1; // Gelände-Talent des Fahrers
+    const off = sf.topAbs ? perf.offroad : 1; // Gelände-Talent von Fahrzeug und Fahrer
     const top = (sf.topAbs ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * sf.top) * clamp(1 - 2 * slope, 0.6, 1.3);
-    const grip = Math.min(1.2, sf.grip * perf.grip) * PHYS.gripAll;
+    const grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll; // rutschiger Boden: Fahrzeug-Wert 'loose'
 
-    if (input.up) { if (vF < top) vF += perf.accel * Math.min(1, sf.accel * off) * dt; }
+    const traction = clamp(grip * 1.6, 0.3, 1); // wenig Grip = Räder drehen durch, man kommt schlechter vom Fleck
+    if (input.up) { if (vF < top) vF += perf.accel * Math.min(1, sf.accel * off) * traction * dt; }
     else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
     else { const fr = 14 * dt; vF = Math.abs(vF) < fr ? 0 : vF - Math.sign(vF) * fr; }
     vF -= 9.81 * slope * PHYS.gravity * dt;                 // Schwerkraft
@@ -379,8 +398,9 @@
 
     // Zusammenstösse mit Bäumen, Häusern, Felsen … (zwei Kreise: vorne und hinten am Auto)
     let bump = 0, bx = 0, bz = 0;
-    for (const o of PHYS.collisions ? [1.25, -1.25] : []) {
-      const push = world.collide(car.x + fx * o, car.z + fz * o, 1.05);
+    const cr = carModel.collide;
+    for (const o of PHYS.collisions ? [cr.off, -cr.off] : []) {
+      const push = world.collide(car.x + fx * o, car.z + fz * o, cr.r);
       if (!push) continue;
       car.x += push.x; car.z += push.z;
       const L = Math.hypot(push.x, push.z) || 1, nx = push.x / L, nz = push.z / L;
@@ -408,7 +428,7 @@
     car.roll += (-Math.atan2(hl - hr, 1.8) + lean - car.roll) * Math.min(1, dt * 10);
 
     const step = vF * dt;
-    for (const w of carModel.wheels) w.rotation.z -= step / 0.45;
+    for (const w of carModel.wheels) w.rotation.z -= step / carModel.wheelR;
 
     // Effekte: Rauch beim Rutschen, Staub im Gelände, Spritzer im Wasser
     distSinceFx += Math.hypot(car.vx, car.vz) * dt;
@@ -430,7 +450,7 @@
     carModel.group.rotation.set(car.roll, -car.angle, car.pitch, 'YZX');
     for (const p of carModel.frontPivots) p.rotation.y = -car.steerVis;
     const drv = carModel.driver;
-    if (drv && drv.userData.float) drv.position.y = 1.15 + Math.sin(performance.now() / 300) * 0.06;
+    if (drv && drv.userData.float) drv.position.y = drv.userData.baseY + 0.05 + Math.sin(performance.now() / 300) * 0.06;
   }
 
   // ---------- Spiel-Update ----------
@@ -566,16 +586,30 @@
     const cache = {};
     return {
       portrait(c) { return cache[c.id] || (cache[c.id] = shot(Drivers.build(c), 150, 150, [1.7, 0.95, 0.75], [0, 0.66, 0])); },
-      car(c) { return shot(buildCarModel(carCfg, c).group, 460, 280, [5.2, 2.6, 4.6], [0, 0.95, 0]); }
+      car(v, c) { return shot(buildCarModel(v, c).group, 460, 280, [5.2, 2.6, 4.6], [0, 0.95, 0]); },
+      vehicle(v, c) { const k = v.id + '|' + c.id; return cache[k] || (cache[k] = shot(buildCarModel(v, c).group, 180, 120, [5.6, 2.8, 5.0], [0, 0.9, 0])); },
+      forget(id) { for (const k in cache) if (k === id || k.endsWith('|' + id)) delete cache[k]; }
     };
   })();
 
-  function statBars(v) {
-    const n = clamp(Math.round(3 + (v - 1) * 14), 1, 5);
+  // Kleine Fahrer-Boni als Text, z.B. "+4 % Tempo"
+  function bonusChips(st) {
+    const names = { top: 'Tempo', accel: 'Beschleunigung', handling: 'Lenkung', grip: 'Grip', offroad: 'Gelände' };
+    const chips = Object.keys(names).filter(k => Math.abs(st[k] - 1) > 0.001).map(k => {
+      const p = Math.round((st[k] - 1) * 100);
+      return `<span class="chip ${p > 0 ? 'up' : 'down'}">${p > 0 ? '+' : '−'}${Math.abs(p)} % ${names[k]}</span>`;
+    });
+    return chips.length ? chips.join('') : '<span class="chip">keine Boni</span>';
+  }
+  // Fahrzeug-Werte als Balken (1–5), im Vergleich zu den anderen Fahrzeugen
+  function carBars(key, v) {
+    const vals = CARS.map(c => c[key]), mn = Math.min(...vals), mx = Math.max(...vals);
+    const n = mx === mn ? 3 : 1 + Math.round(4 * (v - mn) / (mx - mn));
     let h = '';
     for (let i = 1; i <= 5; i++) h += `<i class="${i <= n ? 'on' : ''}"></i>`;
     return h;
   }
+
   function renderChars() {
     const grid = $('charGrid');
     grid.innerHTML = '';
@@ -587,33 +621,76 @@
       b.addEventListener('click', () => { if (c.id !== char.id) { setCharacter(c); renderChars(); } honk(); });
       grid.appendChild(b);
     }
-    $('charImg').src = preview.car(char);
+    $('charImg').src = preview.portrait(char);
     $('charName').textContent = char.name;
     $('charTitle').textContent = char.title;
     $('charInfo').textContent = char.info;
-    const st = char.stats;
-    $('charStats').innerHTML = [['Tempo', st.top], ['Beschleunigung', st.accel], ['Lenkung', st.handling], ['Grip', st.grip], ['Gelände', st.offroad]]
-      .map(([l, v]) => `<div class="st"><span>${l}</span><b>${statBars(v)}</b></div>`).join('');
+    $('charStats').innerHTML = bonusChips(char.stats);
+    $('sumChar').textContent = char.name;
+  }
+
+  function renderCars() {
+    const grid = $('carGrid');
+    grid.innerHTML = '';
+    for (const v of CARS) {
+      const b = document.createElement('button');
+      b.className = 'char vehicle' + (v.id === carCfg.id ? ' sel' : '');
+      b.style.setProperty('--c', char.color);
+      b.innerHTML = `<img src="${preview.vehicle(v, char)}" alt=""><span>${v.name}<small>${v.type}</small></span>`;
+      b.addEventListener('click', () => { if (v.id !== carCfg.id) { setVehicle(v); renderCars(); } });
+      grid.appendChild(b);
+    }
+    $('carImg').src = preview.car(carCfg, char);
+    $('carName').textContent = carCfg.name;
+    $('carType').textContent = carCfg.type;
+    $('carInfo').textContent = carCfg.info;
+    $('carStats').innerHTML = [['Tempo', 'maxSpeed'], ['Beschleunigung', 'accel'], ['Lenkung', 'handling'], ['Grip Asphalt', 'grip'], ['Grip Schnee/Eis/Sand', 'loose'], ['Gelände', 'offroad']]
+      .map(([l, k]) => `<div class="st"><span>${l}</span><b>${carBars(k, carCfg[k])}</b></div>`).join('');
+    $('sumCar').textContent = carCfg.name;
   }
   $('hornTest').addEventListener('click', honk);
 
+  // Menü-Schritte: 0 = Fahrer, 1 = Fahrzeug, 2 = Strecke
+  let menuStep = 0;
+  function showStep(i) {
+    menuStep = i;
+    document.querySelectorAll('#steps .tab').forEach((t, k) => t.classList.toggle('active', k === i));
+    document.querySelectorAll('.page').forEach((p, k) => { p.style.display = k === i ? '' : 'none'; });
+    if (i === 1) renderCars();
+    $('menu').scrollTop = 0;
+  }
+  document.querySelectorAll('#steps .tab').forEach((t, k) => t.addEventListener('click', () => showStep(k)));
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => showStep(+b.dataset.go)));
+
   // ---------- Menü ----------
+  const DIFF = { 1: ['Leicht', 'easy'], 2: ['Mittel', 'mid'], 3: ['Schwer', 'hard'] };
   function renderMenu() {
     renderChars();
+    renderCars();
     const grid = $('trackGrid');
     grid.innerHTML = '';
-    for (const t of TRACKS) {
-      const th = THEMES[t.theme], rec = getRecord(t.id);
+    const sorted = TRACKS.slice().sort((a, b) => (a.difficulty || 2) - (b.difficulty || 2));
+    for (const t of sorted) {
+      const th = THEMES[t.theme], rec = getRecord(t.id), d = DIFF[t.difficulty || 2];
       const card = document.createElement('button');
       card.className = 'card';
       card.style.background = `linear-gradient(165deg, ${th.skyTop} 0%, ${th.skyBottom} 52%, ${th.ground} 53%, ${th.groundVar} 100%)`;
-      card.innerHTML = `<div class="emoji">${th.emoji}</div><div class="cinfo"><div class="cname">${t.name}</div>
+      card.innerHTML = `<div class="emoji">${th.emoji}<span class="diff ${d[1]}">${d[0]}</span></div><div class="cinfo"><div class="cname">${t.name}</div>
         <div class="ctheme">${th.name} · ${t.laps} Runden</div><div class="cdesc">${t.info}</div>
         <div class="crec">🏆 ${rec.total != null ? fmt(rec.total) : 'noch keine Zeit'}</div></div>`;
       card.addEventListener('click', () => { ensureAudio(); chooseTrack(t); });
       grid.appendChild(card);
     }
+    showStep(menuStep);
   }
+
+  // Eigene 3D-Modelle laden (falls in characters.js eingetragen)
+  Drivers.loadModels(CHARACTERS, c => {
+    preview.forget(c.id);
+    if (c.id === char.id) rebuildCar();
+    if (phase === 'menu') renderMenu();
+  });
+
   // Am Handy: Vollbild und Querformat beim Start eines Rennens
   function goFullscreen() {
     if (!MOBILE || document.fullscreenElement || isInstalled()) return;
@@ -703,9 +780,9 @@
 
   // ---------- Entwicklermodus ----------
   DevMode.init({
-    targets: { car: carCfg, phys: PHYS, cam: camModes[0], surf: SURFACES, race: RACE, sound: SOUND, debug: DEBUG },
+    targets: { tune: TUNE, phys: PHYS, cam: camModes[0], surf: SURFACES, race: RACE, sound: SOUND, debug: DEBUG },
     onChange(path) {
-      if (path.startsWith('car.') || path === 'phys.ignoreStats') computePerf();
+      if (path.startsWith('tune.') || path === 'phys.ignoreStats') computePerf();
       if (path === 'cam.fov') { camera.fov = camModes[0].fov; camera.updateProjectionMatrix(); }
       if (path.startsWith('debug.')) $('debug').style.display = DEBUG.fps || DEBUG.info ? 'block' : 'none';
     }

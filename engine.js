@@ -6,7 +6,8 @@
 //  einer Schleife ab – je höher die Drehzahl, desto schneller.
 //  Dazu gibt es 3 Gänge: beim Hochschalten fällt die Drehzahl.
 // =====================================================
-window.EngineSound = function (ctx, out) {
+window.EngineSound = function (ctx, out, opts) {
+  opts = Object.assign({ pitch: 1, sub: 0.25, bright: 1 }, opts || {}); // Klang je nach Fahrzeug
   const sr = ctx.sampleRate, BASE = 40, PULSES = 64;
   const per = sr / BASE, len = Math.floor(per * PULSES);
   const buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
@@ -35,7 +36,7 @@ window.EngineSound = function (ctx, out) {
   const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.Q.value = 0.8;
   // Tiefes Brummen darunter
   const sub = ctx.createOscillator(); sub.type = 'triangle';
-  const subGain = ctx.createGain(); subGain.gain.value = 0.25;
+  const subGain = ctx.createGain(); subGain.gain.value = opts.sub;
   const master = ctx.createGain(); master.gain.value = 0;
   src.connect(shaper).connect(filter).connect(master);
   sub.connect(subGain).connect(filter);
@@ -78,14 +79,19 @@ window.EngineSound = function (ctx, out) {
 
     const load = Math.max(0, slope || 0) * 4;                  // bergauf: angestrengter
     const shifting = shiftT > 0 && throttle;                   // beim Schalten kurz vom Gas
-    const now = ctx.currentTime, rate = 0.6 + rpm * 3.4;
+    const now = ctx.currentTime, rate = (0.6 + rpm * 3.4) * opts.pitch;
     src.playbackRate.setTargetAtTime(rate, now, 0.03);
     sub.frequency.setTargetAtTime(BASE * rate * 0.5, now, 0.03);
-    filter.frequency.setTargetAtTime(320 + rpm * 1700 + (shifting ? 0 : throttle * (900 + load * 600)), now, 0.04);
+    filter.frequency.setTargetAtTime((320 + rpm * 1700 + (shifting ? 0 : throttle * (900 + load * 600))) * opts.bright, now, 0.04);
     const vol = shifting ? 0.07 : 0.09 + rpm * 0.06 + throttle * 0.05 + load * 0.02;
     master.gain.setTargetAtTime(active ? vol * (volume == null ? 1 : volume) : 0, now, active ? 0.04 : 0.3);
   }
   // Für Tests: Gang und Drehzahl ablesen
   function state() { return { gear: gear + 1, rpm }; }
-  return { update, state };
+  // Motor abschalten (beim Fahrzeugwechsel)
+  function stop() {
+    master.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+    setTimeout(() => { try { src.stop(); sub.stop(); master.disconnect(); } catch (e) {} }, 400);
+  }
+  return { update, state, stop };
 };

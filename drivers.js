@@ -157,7 +157,40 @@ window.Drivers = (() => {
     }
   };
 
+  // ---------- Eigene 3D-Modelle (.glb) ----------
+  const glbCache = {};
+  // Lädt alle .glb-Dateien, die in characters.js eingetragen sind.
+  // onLoaded(char) wird aufgerufen, sobald ein Modell fertig ist.
+  function loadModels(chars, onLoaded) {
+    if (!THREE.GLTFLoader) return;
+    const loader = new THREE.GLTFLoader();
+    for (const c of chars) {
+      if (!c.glb || glbCache[c.id]) continue;
+      loader.load(c.glb, gltf => {
+        const root = gltf.scene;
+        // Grösse anpassen: ganzes Modell auf glbHeight, Füsse auf glbY
+        const bb = new THREE.Box3().setFromObject(root), size = bb.getSize(new THREE.Vector3());
+        const s = (c.glbHeight || 2.0) / (size.y || 1);
+        root.scale.setScalar(s);
+        const center = bb.getCenter(new THREE.Vector3());
+        root.position.set(-center.x * s, -bb.min.y * s + (c.glbY != null ? c.glbY : -1.04), -center.z * s);
+        const wrap = new THREE.Group();
+        wrap.rotation.y = c.glbRotY != null ? c.glbRotY : Math.PI / 2; // glTF schaut nach +Z, unser Fahrer nach +X
+        wrap.add(root);
+        wrap.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+        glbCache[c.id] = wrap;
+        onLoaded && onLoaded(c);
+      }, undefined, err => console.warn('Modell konnte nicht geladen werden:', c.glb, err));
+    }
+  }
+
   function build(char) {
+    if (glbCache[char.id]) {
+      const g = new THREE.Group();
+      g.add(glbCache[char.id].clone(true));
+      g.userData.float = char.model === 'geist';
+      return g;
+    }
     const g = (builders[char.model] || builders.orla)();
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     return g;
@@ -230,5 +263,5 @@ window.Drivers = (() => {
     try { (horns[char.horn] || horns.funk)(ctx, out, ctx.currentTime + 0.01); } catch (e) {}
   }
 
-  return { build, honk };
+  return { build, honk, loadModels, hasGlb: id => !!glbCache[id] };
 })();
