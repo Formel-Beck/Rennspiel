@@ -159,6 +159,13 @@
   @media (pointer: coarse) { #itemHud { top: auto; bottom: calc(16px + var(--sb)); } #specBar { width: 130px; } }
   #charSpecial { font-size: 12px; margin-top: 6px; opacity: .95; } #charSpecial small { opacity: .7; }
   .diff.itm { background: #7c4dff; margin-right: 6px; }
+  .botBar { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: center; background: rgba(10,14,30,.7); border: 2px solid rgba(255,255,255,.15);
+    border-radius: 14px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; font-weight: 800; }
+  .botBar.inBox { background: rgba(255,255,255,.05); margin: 0; }
+  .botBar > div { display: flex; align-items: center; gap: 8px; }
+  .segs { display: flex; background: rgba(0,0,0,.35); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg { border: 0; border-radius: 999px; padding: 6px 11px; color: #fff; background: transparent; font-weight: 800; font-size: 13px; }
+  .seg.sel { background: linear-gradient(90deg, #ff7043, #ff2bd6); }
   .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
   #devPanel { z-index: 20; align-items: stretch; }
   .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
@@ -251,6 +258,10 @@
     <button class="next" data-go="2" id="nextToTrack">Weiter: Strecke wählen →</button>
   </section>
   <section class="page" style="display:none">
+    <div id="botSettings" class="botBar">
+      <div><span>🤖 Gegner</span><div class="segs" id="botCount"></div></div>
+      <div><span>Stärke</span><div class="segs" id="botLevel"><button class="seg" data-l="1">Leicht</button><button class="seg" data-l="2">Mittel</button><button class="seg" data-l="3">Schwer</button></div></div>
+    </div>
     <div id="trackGrid"></div>
     <div id="lobby" style="display:none">
       <label class="mpLabel mpNameRow">Dein Name<input id="mpName" maxlength="16" placeholder="z.B. Tim"></label>
@@ -266,6 +277,10 @@
         <div id="mpPlayers"></div>
         <div class="mpLabel">Strecke <small>(wählt der Gastgeber 👑)</small></div>
         <div id="mpTracks"></div>
+        <div id="mpBots" class="botBar inBox">
+          <div><span>🤖 Bots auffüllen</span><div class="segs" id="mpBotCount"></div></div>
+          <div><span>Stärke</span><div class="segs" id="mpBotLevel"><button class="seg" data-l="1">Leicht</button><button class="seg" data-l="2">Mittel</button><button class="seg" data-l="3">Schwer</button></div></div>
+        </div>
         <button id="mpStart" class="next">🚦 Rennen starten</button>
         <div id="mpWait"></div>
         <button id="mpLeave" class="devOpen">Raum verlassen</button>
@@ -364,6 +379,7 @@
 <script src="mqtt.min.js"></script>
 <script src="mp.js"></script>
 <script src="items.js"></script>
+<script src="bots.js"></script>
 <script src="devmode.js"></script>
 <script src="game.js"></script>
 <script>

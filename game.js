@@ -145,7 +145,7 @@
     });
   }
   function loadTrack(def) {
-    clearRemotes();
+    clearRemotes(); Bots.clear();
     if (world) disposeScene(world.scene);
     track = def; theme = THEMES[def.theme];
     world = buildWorld(def, theme, Q);
@@ -159,7 +159,7 @@
   function setRecord(id, rec) { try { localStorage.setItem('rennspiel-' + id, JSON.stringify(rec)); } catch (e) {} }
   function fmt(t) {
     if (t == null) return '–';
-    const m = Math.floor(t / 60), s = t - m * 60;
+    const c = Math.round(t * 100), m = Math.floor(c / 6000), s = (c % 6000) / 100; // erst runden, dann aufteilen
     return m + ':' + (s < 10 ? '0' : '') + s.toFixed(2);
   }
 
@@ -294,6 +294,10 @@
   let countdown = 3, gameTime = 0, raceStart = 0, lapStart = 0, lap = 1, lapTimes = [];
   let lastIndex = 0, halfway = false, finishTimer = 0, distSinceFx = 0;
   let menuAngle = 0, myFinish = null, padBoost = 0;
+  // Bot-Gegner (allein): Anzahl und Stärke, werden gespeichert
+  let soloBots = 3, botLevel = 2;
+  try { const v = localStorage.getItem('rennspiel-bots'); if (v != null) soloBots = +v; botLevel = +(localStorage.getItem('rennspiel-botlevel') || 2); } catch (e) {}
+  const hasRivals = () => MP.racing || Bots.list().length > 0;
   const NO_MODS = { boost: 0, spin: 0, gripMin: 0, rocket: false, ghost: false, noTrees: false, offroadFree: false, star: false, ram: false };
   const itemMods = () => Items.enabled && (phase === 'race') ? Items.mods() : NO_MODS;
 
@@ -301,7 +305,7 @@
   function placeCarAtStart(slot) {
     slot = slot || 0;
     const N = world.N, i = (N - 3 - Math.floor(slot / 2) * 2 + N) % N, p = world.path[i], t = world.tang[i], n = world.norm[i];
-    const side = MP.racing ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
+    const side = MP.racing || slot > 0 ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
     car.x = p.x + n.x * side; car.z = p.z + n.z * side; car.angle = Math.atan2(t.z, t.x);
     car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.pitch = 0; car.roll = 0;
     car.y = world.surfaceHeight(car.x, car.z);
@@ -311,13 +315,31 @@
 
   function startRace(slot) {
     resetKeys();
+    // Bots: allein aus den Einstellungen, im Mehrspieler vom Gastgeber
+    let entries = [];
+    if (MP.racing) {
+      if (MP.isHost) for (const p of MP.players.values()) if (p.bot) entries.push({ id: p.id, name: p.name, char: p.char, car: p.car, slot: MP.slots[p.id] || 0 });
+    } else {
+      const others = CHARACTERS.filter(c => c.id !== char.id).sort(() => Math.random() - 0.5);
+      for (let k = 0; k < soloBots; k++) {
+        const ch = others[k % others.length];
+        entries.push({ id: 'bot' + (k + 1), name: '🤖 ' + ch.name, char: ch.id, car: CARS[Math.floor(Math.random() * CARS.length)].id, slot: k });
+      }
+      slot = soloBots; // allein startest du ganz hinten
+    }
     placeCarAtStart(typeof slot === 'number' ? slot : 0);
+    Bots.setup({
+      world, track, theme, laps: lapsNeeded(), level: MP.racing ? MP.botLevel : botLevel, items: !!track.items || RACE.itemsAll, entries,
+      hooks: { spawnParticle, applyLook,
+        onFinish: b => { if (MP.racing && MP.isHost) MP.botFinish(b.id, b.finish); },
+        botShock: (x, z) => { spawnFx('shock', { x, z, y: world.surfaceHeight(x, z) }); Items.remoteEvent('bot', { k: 'shock', x, z }, car); MP.sendEvent({ k: 'shock', x: +x.toFixed(1), z: +z.toFixed(1) }); } }
+    });
     myFinish = null; padBoost = 0;
     Items.setup({
       world, track, char, enabled: !!track.items || RACE.itemsAll,
       getAudio: () => (audio && !muted ? audio : null),
-      sendEvent: e => MP.sendEvent(e),
-      getPlace: () => { if (!MP.racing) return null; const s = standings(); return { place: s.findIndex(e => e.me) + 1, total: s.length }; },
+      sendEvent: e => { MP.sendEvent(e); if (e.k === 'shock') Bots.shock(e.x, e.z, null, false); },
+      getPlace: () => { if (!hasRivals()) return null; const s = standings(); return { place: s.findIndex(e => e.me) + 1, total: s.length }; },
       spawnFx
     });
     phase = 'countdown'; countdown = 3;
@@ -332,6 +354,7 @@
 
   function goToMenu() {
     phase = 'menu';
+    Bots.clear();
     resetKeys();
     setUI('menu');
     renderMenu();
@@ -461,7 +484,7 @@
       car.vx *= 0.97; car.vz *= 0.97;
     }
     // Rempeln mit den Autos der anderen Spieler
-    if (MP.racing && !M.ghost) for (const rc of remoteCars.values()) {
+    if (!M.ghost) for (const rc of [...remoteCars.values(), ...Bots.list()]) {
       if (!rc.visible || (rc.f & 2)) continue; // Geist/Schatten/Rakete: durchfahren
       const rr = rc.model.collide, rfx = Math.cos(rc.a), rfz = Math.sin(rc.a);
       for (const o of [cr.off, -cr.off]) for (const q of [rr.off, -rr.off]) {
@@ -472,6 +495,7 @@
         const heavy = M.star || M.ram;                    // mit Stern/Rammbock wird man selbst kaum geschoben
         car.x += nx * push * (heavy ? 0.2 : 1); car.z += nz * push * (heavy ? 0.2 : 1);
         if ((rc.f & 1 || rc.f & 4) && !heavy && Items.spinOut(1.0)) { car.vx += nx * 14; car.vz += nz * 14; } // vom Stern/Rammbock weggeschleudert
+        if (rc.isBot) { if (heavy) Bots.spinBot(rc, 1.0, -nx * 12, -nz * 12); else { rc.vx -= nx * 2; rc.vz -= nz * 2; } }
         const vn = (car.vx - rc.vx) * nx + (car.vz - rc.vz) * nz;
         if (vn < 0) { const k = heavy ? 0.15 : 0.75; car.vx -= k * vn * nx; car.vz -= k * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x - nx * cr.r; bz = car.z - nz * cr.r; } }
       }
@@ -540,9 +564,11 @@
         flash(String(Math.ceil(countdown)), 1); beep(440, 0.15);
       }
       stepCar(dt, NO_INPUT);
+      updateBots(0); // Bots stehen während dem Countdown
       return;
     }
 
+    updateBots(dt);
     let input = keys;
     if (phase === 'finished') input = { up: false, down: car.speed > 3, left: false, right: false };
     if (padBoost > 0) padBoost -= dt;
@@ -593,13 +619,29 @@
     const r = lastResult;
     $('againBtn').style.display = MP.racing ? 'none' : '';
     $('resMenuBtn').textContent = MP.active ? 'Zur Lobby' : 'Strecke wählen';
-    $('resMP').style.display = MP.racing ? '' : 'none';
-    if (MP.racing) renderStandings();
+    $('resMP').style.display = hasRivals() ? '' : 'none';
+    if (hasRivals()) renderStandings();
     $('resTrack').textContent = track.name;
     $('resTotal').innerHTML = fmt(r.total) + (r.newTotal ? ' <span class="badge">Rekord!</span>' : '');
     $('resLaps').innerHTML = lapTimes.map((t, i) =>
       `<div class="${t === r.best ? 'bestlap' : ''}">Runde ${i + 1}: ${fmt(t)}${t === r.best && r.newLap ? ' <span class="badge">Rekord!</span>' : ''}</div>`).join('');
     $('results').style.display = 'flex';
+  }
+
+  // ---------- Bots bewegen ----------
+  function updateBots(dt) {
+    if (!Bots.list().length) return;
+    const st = standings(), total = st.length;
+    st.forEach((e, k) => { const b = Bots.get(e.id); if (b) { b.place = k + 1; b.total = total; } });
+    // Die Bots orientieren sich am besten menschlichen Fahrer (Gummiband)
+    let lead = myProgress();
+    if (MP.racing) for (const e of st) if (!Bots.get(e.id) && e.pr > lead && e.pr < 999) lead = e.pr;
+    const others = MP.racing ? [...remoteCars.values()].filter(rc => rc.visible) : [];
+    Bots.update(dt, {
+      racing: phase !== 'menu', time: gameTime - raceStart,
+      player: { x: car.x, z: car.z, vx: car.vx, vz: car.vz, a: car.angle, f: (Items.enabled ? Items.flags() : 0), model: carModel },
+      others, leaderProgress: myFinish != null ? null : lead
+    });
   }
 
   // ---------- Mehrspieler: Platzierung ----------
@@ -612,10 +654,14 @@
   }
   function standings() {
     const list = [];
-    for (const p of MP.players.values()) {
-      const me = p.id === MP.myId, buf = MP.remote.get(p.id);
-      const pr = me ? myProgress() : (buf && buf.length ? buf[buf.length - 1].s.pr : -1);
-      list.push({ id: p.id, name: p.name, me, pr, fin: me ? myFinish : MP.finishes.get(p.id), color: (CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0]).color });
+    if (MP.racing) for (const p of MP.players.values()) {
+      const me = p.id === MP.myId, buf = MP.remote.get(p.id), lb = Bots.get(p.id);
+      const pr = me ? myProgress() : lb ? lb.progress : (buf && buf.length ? buf[buf.length - 1].s.pr : -1);
+      const fin = me ? myFinish : lb ? lb.finish : MP.finishes.get(p.id);
+      list.push({ id: p.id, name: p.name, me, pr, fin: fin == null ? undefined : fin, color: (CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0]).color });
+    } else {
+      list.push({ id: 'me', name: MP.myName() || char.name, me: true, pr: myProgress(), fin: myFinish == null ? undefined : myFinish, color: char.color });
+      for (const b of Bots.list()) list.push({ id: b.id, name: b.name, me: false, pr: b.progress, fin: b.finish == null ? undefined : b.finish, color: b.ch.color });
     }
     list.sort((a, b) => (a.fin != null) !== (b.fin != null) ? (a.fin != null ? -1 : 1) : a.fin != null ? a.fin - b.fin : b.pr - a.pr);
     return list;
@@ -625,12 +671,12 @@
     $('resMP').innerHTML = '<b>Rangliste</b>' + standings().map((e, k) =>
       `<div class="mpRes${e.me ? ' me' : ''}" style="--c:${e.color}"><span>${k + 1}.</span><span class="nm">${esc(e.name)}</span><span>${e.fin != null ? fmt(e.fin) : 'fährt noch …'}</span></div>`).join('');
   }
-  setInterval(() => { if (MP.racing && $('results').style.display === 'flex') renderStandings(); }, 500);
+  setInterval(() => { if (hasRivals() && $('results').style.display === 'flex') renderStandings(); }, 500);
 
   // ---------- Anzeige ----------
   function updateHud() {
-    $('placeRow').style.display = MP.racing ? '' : 'none';
-    if (MP.racing) { const st = standings(); $('place').textContent = (st.findIndex(e => e.me) + 1) + ' / ' + st.length; }
+    $('placeRow').style.display = hasRivals() ? '' : 'none';
+    if (hasRivals()) { const st = standings(); $('place').textContent = (st.findIndex(e => e.me) + 1) + ' / ' + st.length; }
     $('lap').textContent = Math.min(lap, lapsNeeded()) + ' / ' + lapsNeeded();
     const racing = phase === 'race' || (phase === 'paused' && pausedFrom === 'race');
     $('time').textContent = fmt(racing ? gameTime - raceStart : phase === 'finished' ? lastResult.total : 0);
@@ -671,6 +717,10 @@
       if (!rc.visible) continue;
       mctx.beginPath(); mctx.arc(mapOX + rc.x * mapScale, mapOZ + rc.z * mapScale, 4, 0, Math.PI * 2);
       mctx.fillStyle = rc.ch.color; mctx.fill();
+    }
+    for (const b of Bots.list()) {
+      mctx.beginPath(); mctx.arc(mapOX + b.x * mapScale, mapOZ + b.z * mapScale, 3.5, 0, Math.PI * 2);
+      mctx.fillStyle = b.ch.color; mctx.fill();
     }
     const x = mapOX + car.x * mapScale, y = mapOZ + car.z * mapScale;
     mctx.beginPath(); mctx.arc(x, y, 5, 0, Math.PI * 2);
@@ -782,7 +832,15 @@
 
   // ---------- Menü ----------
   const DIFF = { 1: ['Leicht', 'easy'], 2: ['Mittel', 'mid'], 3: ['Schwer', 'hard'] };
+  function renderBotSettings() {
+    $('botCount').innerHTML = [0, 1, 2, 3, 4, 5].map(k => `<button class="seg${k === soloBots ? ' sel' : ''}" data-n="${k}">${k}</button>`).join('');
+    $('botCount').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { soloBots = +b.dataset.n; try { localStorage.setItem('rennspiel-bots', soloBots); } catch (e) {} renderBotSettings(); }));
+    $('botLevel').querySelectorAll('button').forEach(b => b.classList.toggle('sel', +b.dataset.l === botLevel));
+  }
+  $('botLevel').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { botLevel = +b.dataset.l; try { localStorage.setItem('rennspiel-botlevel', botLevel); } catch (e) {} renderBotSettings(); }));
+
   function renderMenu() {
+    renderBotSettings();
     renderChars();
     renderCars();
     const grid = $('trackGrid');
@@ -1057,7 +1115,7 @@
     const t = performance.now() - 120;
     for (const id of [...remoteCars.keys()]) if (!MP.players.has(id)) removeRemote(id);
     for (const [id, buf] of MP.remote) {
-      if (id === MP.myId) continue;
+      if (id === MP.myId || Bots.get(id)) continue;
       const rc = getRemote(id); if (!rc) continue;
       const s = interpolate(buf, t);
       rc.visible = !!s && s.age < 3000;
@@ -1100,7 +1158,8 @@
     clearRemotes();
     if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); }
   };
-  MP.onEvent = (id, e) => { if (phase === 'race' || phase === 'countdown') Items.remoteEvent(id, e, car); };
+  MP.onEvent = (id, e) => { if (phase === 'race' || phase === 'countdown' || phase === 'finished') { Items.remoteEvent(id, e, car); if (e.k === 'shock') Bots.shock(e.x, e.z, null, false); } };
+  MP.getExtraStates = () => Bots.states();
   MP.onLobby = () => { if (phase === 'menu') updateModeUI(); };
   MP.onRaceEnd = () => { if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); } }; // Gastgeber ist zurück in der Lobby
 
@@ -1116,6 +1175,7 @@
     $('tab3label').textContent = mpMode ? 'Lobby' : 'Strecke';
     $('tab3sub').textContent = mpMode ? (MP.active ? 'Raum ' + (document.getElementById('mpCode').textContent) : 'mit Freunden') : "los geht's";
     $('trackGrid').style.display = mpMode ? 'none' : '';
+    $('botSettings').style.display = mpMode ? 'none' : '';
     $('lobby').style.display = mpMode ? '' : 'none';
     $('nextToTrack').textContent = mpMode ? 'Weiter: Lobby →' : 'Weiter: Strecke wählen →';
   }
@@ -1141,6 +1201,6 @@
     chooseTrack: id => chooseTrack(TRACKS.find(t => t.id === id)), get world() { return world; }, camera, renderer, car, keys,
     // Simuliert Sekunden ohne Bild (zum Testen)
     sim(sec, input) { Object.assign(keys, input || {}); for (let t = 0; t < sec; t += 1 / 60) update(1 / 60); },
-    get phase() { return phase; }, togglePause, lapTimes: () => lapTimes
+    get phase() { return phase; }, togglePause, lapTimes: () => lapTimes, standings: () => standings()
   };
 })();

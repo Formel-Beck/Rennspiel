@@ -39,7 +39,8 @@ window.MP = (() => {
     players: new Map(),   // id -> { id, name, char, car }
     remote: new Map(),    // id -> [{ time, s }] (letzte Positionen)
     finishes: new Map(),  // id -> Zeit im Ziel
-    trackId: null, laps: 0,
+    trackId: null, laps: 0, slots: {}, botCount: 0, botLevel: 2,
+    getExtraStates: null, // vom Spiel: Zustände der Bots (nur Gastgeber)
     // vom Spiel gesetzt:
     getInfo: null, getState: null, onStart: null, onHonk: null, onLeave: null, onLobby: null, onRaceEnd: null, onEvent: null
   };
@@ -152,7 +153,11 @@ window.MP = (() => {
     if (id === api.myId) return;
     lastSeen.set(id, performance.now());
     if (d.t === 'hello') {
-      if (!api.players.has(id) && api.players.size >= MAX_PLAYERS) { publish('down', { t: 'full', to: id }); return; }
+      if (!api.players.has(id) && humans().length >= MAX_PLAYERS) { publish('down', { t: 'full', to: id }); return; }
+      if (!api.players.has(id) && api.players.size >= MAX_PLAYERS && !api.racing) { // ein Bot macht Platz
+        const bot = [...api.players.values()].reverse().find(p => p.bot);
+        if (bot) { api.players.delete(bot.id); api.botCount--; }
+      }
       const isNew = !api.players.has(id);
       api.players.set(id, { id, name: d.name, char: d.char, car: d.car });
       broadcastLobby();
@@ -175,7 +180,7 @@ window.MP = (() => {
     }
   }
   function dropPlayer(id) {
-    if (!api.players.has(id) || id === api.myId) return;
+    if (!api.players.has(id) || id === api.myId || api.players.get(id).bot) return;
     api.players.delete(id); api.remote.delete(id); lastSeen.delete(id);
     broadcastLobby();
     api.onLeave && api.onLeave(id);
@@ -185,12 +190,30 @@ window.MP = (() => {
 
   function chooseTrack(id) { api.trackId = id; broadcastLobby(); }
 
+  // ---------- Bots auffüllen (Gastgeber) ----------
+  const humans = () => [...api.players.values()].filter(p => !p.bot);
+  function setBots(count, level) {
+    if (level) api.botLevel = level;
+    const free = MAX_PLAYERS - humans().length;
+    api.botCount = Math.max(0, Math.min(count, free));
+    for (const p of [...api.players.values()]) if (p.bot) api.players.delete(p.id);
+    const used = new Set(humans().map(p => p.char));
+    const chars = CHARACTERS.filter(c => !used.has(c.id)).concat(CHARACTERS.filter(c => used.has(c.id)));
+    for (let k = 0; k < api.botCount; k++) {
+      const ch = chars[k % chars.length], car = CARS[Math.floor(Math.random() * CARS.length)];
+      api.players.set('bot' + (k + 1), { id: 'bot' + (k + 1), name: '🤖 ' + ch.name, char: ch.id, car: car.id, bot: true });
+    }
+    broadcastLobby();
+  }
+  function botFinish(id, time) { api.finishes.set(id, time); publish('down', { t: 'fin', id, time }); }
+
   function startRace() {
     if (!api.isHost) return;
     const track = TRACKS.find(t => t.id === api.trackId) || TRACKS[0];
     const slots = {}; let k = 0;
-    for (const id of api.players.keys()) slots[id] = k++;
-    api.racing = true; api.finishes.clear(); api.laps = track.laps;
+    for (const p of api.players.values()) if (p.bot) slots[p.id] = k++;   // Bots starten vorne
+    for (const p of api.players.values()) if (!p.bot) slots[p.id] = k++;  // Menschen dahinter
+    api.racing = true; api.finishes.clear(); api.laps = track.laps; api.slots = slots;
     publish('down', { t: 'start', track: track.id, laps: track.laps, slots });
     api.onStart && api.onStart(track.id, slots[api.myId], track.laps);
   }
@@ -258,7 +281,7 @@ window.MP = (() => {
       if (d.t === 'full') { setStatus('Der Raum ist voll (höchstens ' + MAX_PLAYERS + ' Fahrer).', true); leave(true); }
     } else if (d.t === 'start') {
       if (!(api.myId in d.slots)) return;
-      api.racing = true; api.finishes.clear(); api.laps = d.laps; api.trackId = d.track;
+      api.racing = true; api.finishes.clear(); api.laps = d.laps; api.trackId = d.track; api.slots = d.slots;
       api.onStart && api.onStart(d.track, d.slots[api.myId] || 0, d.laps);
     } else if (d.t === 'ss') {
       for (const it of d.list) if (it.id !== api.myId) pushRemote(it.id, it.s);
@@ -300,6 +323,7 @@ window.MP = (() => {
       if (api.isHost) {
         const list = [{ id: api.myId, s }];
         for (const [id, buf] of api.remote) if (buf.length) list.push({ id, s: buf[buf.length - 1].s });
+        if (api.getExtraStates) for (const it of api.getExtraStates()) list.push(it);
         publish('down', { t: 'ss', list });
       } else publish('up/' + api.myId, { t: 's', s });
     }, 1000 / SEND_HZ);
@@ -309,7 +333,7 @@ window.MP = (() => {
       if (api.isHost) {
         announce();
         if (!api.racing) publish('down', lobbyMsg()); // Lobby regelmässig auffrischen
-        for (const id of [...api.players.keys()]) if (id !== api.myId && now - (lastSeen.get(id) || now) > 30000) dropPlayer(id);
+        for (const [id, p] of [...api.players]) if (id !== api.myId && !p.bot && now - (lastSeen.get(id) || now) > 30000) dropPlayer(id);
       } else {
         if (!api.racing) publish('up/' + api.myId, { t: 'ping' });
         if (now - hostSeen > 40000 && !document.hidden) hostLeft(); // 40 s nichts mehr vom Gastgeber
@@ -396,7 +420,7 @@ window.MP = (() => {
       const li = document.createElement('div');
       li.className = 'mpPlayer';
       li.style.setProperty('--c', ch.color);
-      li.innerHTML = `<b>${++n}</b><span class="nm">${esc(p.name)}${p.id === api.myId ? ' (du)' : ''}${n === 1 ? ' 👑' : ''}</span><span class="sub">${esc(ch.name)} · ${esc(car.name)}</span>`;
+      li.innerHTML = `<b>${++n}</b><span class="nm">${esc(p.name)}${p.id === api.myId ? ' (du)' : ''}${p.id === api.myId && api.isHost || (!api.isHost && n === 1) ? ' 👑' : ''}</span><span class="sub">${esc(ch.name)} · ${esc(car.name)}</span>`;
       list.appendChild(li);
     }
     for (let k = n; k < MAX_PLAYERS; k++) list.insertAdjacentHTML('beforeend', `<div class="mpPlayer empty"><b>${k + 1}</b><span class="nm">frei</span></div>`);
@@ -411,6 +435,13 @@ window.MP = (() => {
       b.innerHTML = `<span>${th.emoji}</span>${esc(t.name)}`;
       if (api.isHost) b.addEventListener('click', () => chooseTrack(t.id));
       tr.appendChild(b);
+    }
+    $('mpBots').style.display = api.isHost ? '' : 'none';
+    if (api.isHost) {
+      const free = MAX_PLAYERS - humans().length;
+      $('mpBotCount').innerHTML = Array.from({ length: free + 1 }, (_, k) => `<button class="seg${k === api.botCount ? ' sel' : ''}" data-n="${k}">${k}</button>`).join('');
+      $('mpBotCount').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setBots(+b.dataset.n)));
+      $('mpBotLevel').querySelectorAll('button').forEach(b => b.classList.toggle('sel', +b.dataset.l === api.botLevel));
     }
     $('mpStart').style.display = api.isHost ? '' : 'none';
     $('mpWait').style.display = api.isHost ? 'none' : '';
@@ -429,6 +460,7 @@ window.MP = (() => {
     $('mpLeave').addEventListener('click', () => leave());
     $('mpInvite').addEventListener('click', invite);
     $('mpStart').addEventListener('click', startRace);
+    $('mpBotLevel').querySelectorAll('button').forEach(b => b.addEventListener('click', () => setBots(api.botCount, +b.dataset.l)));
     const raum = (new URLSearchParams(location.search).get('raum') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
     if (raum) $('mpJoinCode').value = raum;
     if (typeof mqtt === 'undefined') setStatus('Mehrspieler braucht eine Internetverbindung beim ersten Start.', true);
@@ -440,5 +472,5 @@ window.MP = (() => {
     return n;
   }
 
-  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, sendEvent, updateInfo, render, myName });
+  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, sendEvent, setBots, botFinish, updateInfo, render, myName });
 })();

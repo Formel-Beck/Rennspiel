@@ -303,5 +303,25 @@ window.Items = (() => {
 
   function specialInfo(c) { return SPECIALS[c.id] || { name: 'Turbo', icon: '⚡', info: 'Ein kurzer Turbo.' }; }
 
-  return { setup, update, useItem, useSpecial, mods, flags, remoteEvent, spinOut, specialInfo, get enabled() { return enabled; }, state: st };
+  // ---------- Für die Bots ----------
+  // Prüft, ob an (x, z) eine ?-Box liegt; wenn ja, wird sie eingesammelt
+  function grabBox(x, z) {
+    if (!enabled) return false;
+    for (const b of boxes) if (b.wait <= 0 && Math.hypot(x - b.x, z - b.z) < 2.6) {
+      b.wait = 3; b.mesh.visible = false; spawnFx('box', { x: b.x, z: b.z, y: b.mesh.position.y }); return true;
+    }
+    return false;
+  }
+  // Liegt an (x, z) eine Pfütze?
+  function hazardAt(x, z) { for (const h of hazards) if (Math.hypot(x - h.x, z - h.z) < h.r + 0.8) return h; return null; }
+  function addHazard(type, x, z, broadcast) { makeHazard(type, x, z); if (broadcast) sendEvent({ k: 'hz', type, x: +x.toFixed(2), z: +z.toFixed(2) }); }
+  function rollFor(band) { // zufälliges Item für einen Bot
+    const table = ODDS[band] || ODDS.mid, sum = Object.values(table).reduce((a, b) => a + b, 0);
+    let r = Math.random() * sum;
+    for (const [k, w] of Object.entries(table)) { r -= w; if (r <= 0) return k; }
+    return 'turbo';
+  }
+
+  return { setup, update, useItem, useSpecial, mods, flags, remoteEvent, spinOut, specialInfo, grabBox, hazardAt, addHazard, rollFor, sfx,
+    ITEMS, get enabled() { return enabled; }, state: st };
 })();
