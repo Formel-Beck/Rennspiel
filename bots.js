@@ -15,7 +15,7 @@ window.Bots = (() => {
     3: { name: 'Schwer', speed: 0.99, corner: 1.12, itemSkill: 1.0, mistakes: 0.05 }
   };
   let list = [], world = null, track = null, theme = null, level = LEVELS[2], laps = 3, itemsOn = false;
-  let hooks = {}; // vom Spiel: spawnParticle, applyLook, onFinish, sendEvent, raceTime, hitPlayer
+  let hooks = {}, gripMul = 1; // vom Spiel: spawnParticle, applyLook, onFinish, sendEvent, raceTime, hitPlayer
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -24,7 +24,7 @@ window.Bots = (() => {
   function setup(opts) {
     clear();
     world = opts.world; track = opts.track; theme = opts.theme; laps = opts.laps; hooks = opts.hooks;
-    level = LEVELS[opts.level] || LEVELS[2]; itemsOn = !!opts.items;
+    level = LEVELS[opts.level] || LEVELS[2]; itemsOn = !!opts.items; gripMul = opts.gripMul || 1;
     for (const e of opts.entries) {
       const ch = CHARACTERS.find(c => c.id === e.char) || CHARACTERS[0], cv = CARS.find(c => c.id === e.car) || CARS[0];
       const model = buildCarModel(cv, ch);
@@ -94,7 +94,7 @@ window.Bots = (() => {
       // Wunschtempo: Wie schnell geht die Kurve? Das Auto kann sich höchstens so schnell drehen,
       // wie seine Lenkung erlaubt -> Höchsttempo = Lenkung × Kurvenradius. Davor rechtzeitig bremsen.
       let target = b.maxSpeed * level.speed;
-      const gripNow = Math.min(1, sf.grip * (sf.grip < 0.7 ? b.loose : b.grip));
+      const gripNow = Math.min(1, sf.grip * (sf.grip < 0.7 ? b.loose : b.grip) * gripMul);
       for (const ahead of [0, 15, 35, 60]) {
         const j = (b.idx + Math.round(ahead / 5)) % N, ang = curveAhead(j, 20);
         if (ang < 0.02) continue;
@@ -115,7 +115,7 @@ window.Bots = (() => {
       target *= 1 + boostAmt;
 
       // Grip (rutschige Stellen)
-      let grip = sf.grip * (sf.grip < 0.7 ? b.loose : b.grip);
+      let grip = sf.grip * (sf.grip < 0.7 ? b.loose : b.grip) * gripMul;
       if (b.star > 0 || b.rocket > 0) grip = Math.max(grip, 1.2);
 
       if (b.spin > 0) { // schleudert

@@ -269,6 +269,7 @@ window.buildWorld = function (track, theme, Q) {
     }
   }
 
+  let roadMat = null;
   // ---------- 5. Strasse ----------
   function roadTexture() {
     const c = document.createElement('canvas'); c.width = 128; c.height = 256;
@@ -297,7 +298,8 @@ window.buildWorld = function (track, theme, Q) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx); g.computeVertexNormals();
-    const road = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: roadTexture(), side: THREE.DoubleSide }));
+    roadMat = new THREE.MeshPhongMaterial({ map: roadTexture(), side: THREE.DoubleSide, shininess: 4, specular: '#111111' });
+    const road = new THREE.Mesh(g, roadMat);
     road.receiveShadow = true;
     scene.add(road);
   }
@@ -475,6 +477,50 @@ window.buildWorld = function (track, theme, Q) {
     scene.add(banner);
   }
 
+  // ---------- Zuschauer und Tribünen ----------
+  const crowd = []; // { x, y, z, ry, s, ph }
+  {
+    const concrete = Props.M('#9ea3a8'), seat = Props.M('#d0d4d8');
+    // Tribünen links und rechts, kurz nach der Start-/Ziellinie
+    const c = Math.min(Math.round(28 / (totalLen / N)), Math.floor(N * 0.05)), p = path[c], t = tang[c], n = norm[c]; // etwa 28 m hinter der Ziellinie
+    for (const sgn of [1, -1]) {
+      const L = Math.min(34, world_W_len()), base = edge + CURB + 5;
+      for (let r = 0; r < 4; r++) {
+        const off = base + r * 2.2, h = 0.7 * (r + 1);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(L, h, 2.2), r % 2 ? seat : concrete);
+        const cx = p.x + n.x * sgn * off, cz = p.z + n.z * sgn * off;
+        step.position.set(cx, p.y - 0.3 + h / 2, cz);
+        step.rotation.y = -Math.atan2(t.z, t.x);
+        step.castShadow = true; step.receiveShadow = true;
+        scene.add(step);
+        for (let k = -L / 2 + 1.5; k <= L / 2 - 1.5; k += 3) addCollider({ x: cx + t.x * k, z: cz + t.z * k, r: 1.4 });
+        // Leute auf der Stufe
+        for (let k = -L / 2 + 0.9; k <= L / 2 - 0.9; k += 1.15) {
+          if (rnd() < 0.15) continue;
+          crowd.push({ x: cx + t.x * (k + (rnd() - 0.5) * 0.3), y: p.y - 0.3 + h, z: cz + t.z * (k + (rnd() - 0.5) * 0.3),
+            ry: Math.atan2(-n.z * sgn, -n.x * sgn), s: 0.85 + rnd() * 0.3, ph: rnd() * 6.28 });
+        }
+      }
+    }
+    // Gruppen von Zuschauern an der Strecke
+    const groups = track.spectators || [0.12, 0.27, 0.42, 0.58, 0.73, 0.88];
+    for (const f of groups) {
+      const i = Math.floor(f * N) % N;
+      if (inTunnel[i] || inTunnel[(i + 5) % N] || inTunnel[(i - 5 + N) % N]) continue;
+      const sgn = rnd() < 0.5 ? 1 : -1, q = path[i], qn = norm[i], qt = tang[i];
+      for (let k = 0; k < 14; k++) {
+        const along = (rnd() - 0.5) * 14, off = edge + CURB + 4 + rnd() * 5;
+        const x = q.x + qn.x * sgn * off + qt.x * along, z = q.z + qn.z * sgn * off + qt.z * along;
+        if (rivers.length) { const rv = riverInfo(x, z); if (rv && rv.d < rv.w / 2 + 3) continue; }
+        const y = terrainHeight(x, z);
+        if (Math.abs(y - q.y) > 4) continue; // zu steil (Schlucht/Hang)
+        crowd.push({ x, y: y - 0.05, z, ry: Math.atan2(-qn.z * sgn, -qn.x * sgn) + (rnd() - 0.5) * 0.6, s: 0.85 + rnd() * 0.3, ph: rnd() * 6.28 });
+        addCollider({ x, z, r: 0.45 });
+      }
+    }
+  }
+  function world_W_len() { return 34; }
+
   // ---------- 7. Deko verteilen ----------
   function addInstances(parts, items) {
     if (!items.length) return;
@@ -567,6 +613,38 @@ window.buildWorld = function (track, theme, Q) {
   }
   for (const m of Props.backdrop(theme.backdrop, theme, rnd, Math.max(HX / 220, HZ / 165))) scene.add(m);
 
+  // Zuschauer zeichnen: Körper, Kopf, Arme (hüpfen und jubeln)
+  let crowdMeshes = null;
+  if (crowd.length) {
+    const body = new THREE.CylinderGeometry(0.26, 0.3, 1.0, 7); body.translate(0, 0.5, 0);
+    const head = new THREE.SphereGeometry(0.2, 8, 6); head.translate(0, 1.22, 0);
+    const arms = new THREE.BoxGeometry(0.12, 0.62, 0.9); arms.translate(0, 1.3, 0);
+    const shirts = ['#e53935', '#1e88e5', '#fdd835', '#43a047', '#8e24aa', '#fb8c00', '#ffffff', '#00acc1', '#ff4fa3'];
+    const skins = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
+    const mk = (geo, cols) => {
+      const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: '#ffffff' }), crowd.length);
+      crowd.forEach((c, k) => m.setColorAt(k, new THREE.Color(cols[Math.floor(rnd() * cols.length)])));
+      m.instanceColor.needsUpdate = true; m.frustumCulled = false; m.castShadow = Q.shadows;
+      scene.add(m); return m;
+    };
+    crowdMeshes = [mk(body, shirts), mk(head, skins), mk(arms, skins)];
+  }
+  let cheer = 0;
+  function animateCrowd(t) {
+    if (!crowdMeshes) return;
+    const [mb, mh, ma] = crowdMeshes;
+    crowd.forEach((c, k) => {
+      const jump = Math.max(0, Math.sin(t * (4 + cheer * 4) + c.ph)) * (0.06 + cheer * 0.35);
+      dummy.position.set(c.x, c.y + jump, c.z); dummy.rotation.set(0, c.ry, 0); dummy.scale.setScalar(c.s); dummy.updateMatrix();
+      mb.setMatrixAt(k, dummy.matrix); mh.setMatrixAt(k, dummy.matrix);
+      // Arme: bei Jubel hoch, sonst unten
+      const up = cheer > 0.1 && Math.sin(c.ph * 3) > -0.3;
+      dummy.position.y = c.y + jump + (up ? 0.35 : -0.55) * c.s; dummy.updateMatrix();
+      ma.setMatrixAt(k, dummy.matrix);
+    });
+    for (const m of crowdMeshes) m.instanceMatrix.needsUpdate = true;
+  }
+
   // ---------- 8. Himmel, Nebel, Sonne, Sterne ----------
   scene.background = new THREE.Color(theme.skyBottom);
   const fogScale = clamp(Math.max(HX / 220, HZ / 165), 1, 1.5);
@@ -590,7 +668,7 @@ window.buildWorld = function (track, theme, Q) {
   scene.add(sunSprite);
 
   let stars = null;
-  if (theme.night) {
+  {
     const sp = [];
     for (let i = 0; i < 700; i++) {
       const a = rnd() * Math.PI * 2, e = 0.08 + rnd() * 1.4;
@@ -598,6 +676,7 @@ window.buildWorld = function (track, theme, Q) {
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
     stars = new THREE.Points(g, new THREE.PointsMaterial({ color: '#ffffff', size: 1.6, sizeAttenuation: false, fog: false }));
+    stars.visible = !!theme.night;
     scene.add(stars);
   }
 
@@ -611,15 +690,66 @@ window.buildWorld = function (track, theme, Q) {
   sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
 
-  // ---------- 10. Schneefall ----------
-  let snow = null;
-  if (theme.snowfall) {
+  // ---------- 10. Schnee und Regen ----------
+  function makeSnow() {
     const cnt = Q.snowCount, sp = new Float32Array(cnt * 3);
     for (let i = 0; i < cnt; i++) { sp[i * 3] = (rnd() - 0.5) * 120; sp[i * 3 + 1] = rnd() * 40; sp[i * 3 + 2] = (rnd() - 0.5) * 120; }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-    snow = new THREE.Points(g, new THREE.PointsMaterial({ color: '#ffffff', size: 0.35, transparent: true, opacity: 0.9, depthWrite: false }));
-    snow.frustumCulled = false;
-    scene.add(snow);
+    const p = new THREE.Points(g, new THREE.PointsMaterial({ color: '#ffffff', size: 0.35, transparent: true, opacity: 0.9, depthWrite: false }));
+    p.frustumCulled = false; scene.add(p); return p;
+  }
+  function makeRain() { // Regentropfen als kurze Striche
+    const cnt = Q.snowCount, sp = new Float32Array(cnt * 6);
+    for (let i = 0; i < cnt; i++) {
+      const x = (rnd() - 0.5) * 100, y = rnd() * 40, z = (rnd() - 0.5) * 100;
+      sp.set([x, y, z, x + 0.15, y + 1.1, z], i * 6);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#c8d6ea', transparent: true, opacity: 0.55, depthWrite: false }));
+    l.frustumCulled = false; scene.add(l); return l;
+  }
+  let snow = theme.snowfall ? makeSnow() : null, rain = null;
+
+  // ---------- Wetter und Tageszeit ----------
+  // time: day, evening, night   weather: clear, rain, fog, snow
+  const baseSunDir = sunDir.clone();
+  const atm = { amb: theme.ambient, sunI: theme.sunIntensity, grip: 1 };
+  function setAtmosphere(o) {
+    o = o || {};
+    const tm = theme.night ? 'night' : (o.time || 'day'), wx = o.weather || 'clear';
+    const top = new THREE.Color(theme.skyTop), bot = new THREE.Color(theme.skyBottom), sunC = new THREE.Color(theme.sun);
+    let sunI = theme.sunIntensity, amb = theme.ambient, fogN = theme.fog[0] * fogScale, fogF = theme.fog[1] * fogScale;
+    sunDir.copy(baseSunDir);
+    if (tm === 'evening') { top.lerp(new THREE.Color('#3b3f8f'), 0.7); bot.lerp(new THREE.Color('#ff9a5c'), 0.75); sunC.set('#ffb36b'); sunI *= 0.8; amb *= 0.72; sunDir.y = 0.2; sunDir.normalize(); }
+    if (tm === 'night' && !theme.night) { top.set('#050a1f'); bot.set('#1c2448'); sunC.set('#9db4ff'); sunI = 0.3; amb *= 0.45; }
+    if (wx === 'rain') { top.lerp(new THREE.Color('#5f6670'), 0.75); bot.lerp(new THREE.Color('#878e98'), 0.75); sunI *= 0.4; amb *= 0.9; fogN *= 0.4; fogF *= 0.5; }
+    if (wx === 'fog') { top.lerp(new THREE.Color('#b8bec6'), 0.75); bot.lerp(new THREE.Color('#c9ced4'), 0.9); sunI *= 0.55; fogN = 10; fogF = 140; }
+    if (wx === 'snow') { top.lerp(new THREE.Color('#c9d3de'), 0.65); bot.lerp(new THREE.Color('#e6ecf2'), 0.65); sunI *= 0.6; fogN *= 0.5; fogF *= 0.6; }
+    if (tm === 'night' && wx !== 'clear') { top.multiplyScalar(0.3); bot.multiplyScalar(0.3); }
+    if (tm === 'evening' && wx !== 'clear') { top.multiplyScalar(0.7); bot.multiplyScalar(0.7); }
+    sky.material.uniforms.top.value.copy(top); sky.material.uniforms.bottom.value.copy(bot);
+    scene.background = bot.clone();
+    scene.fog.color.copy(bot); scene.fog.near = fogN; scene.fog.far = fogF;
+    hemi.color.copy(top).lerp(new THREE.Color('#ffffff'), 0.5);
+    sun.color.copy(sunC);
+    atm.amb = amb; atm.sunI = sunI;
+    hemi.intensity = amb; sun.intensity = sunI;
+    stars.visible = tm === 'night' && wx === 'clear';
+    sunSprite.visible = wx === 'clear' || wx === 'snow' && tm !== 'night';
+    sunSprite.material.color.set(tm === 'night' ? '#cfd8ff' : tm === 'evening' ? '#ffb070' : '#ffffff');
+    sunSprite.scale.setScalar(tm === 'night' ? 45 : tm === 'evening' ? 190 : 150);
+    // Niederschlag
+    const wantSnow = wx === 'snow' || (theme.snowfall && wx !== 'rain');
+    if (wantSnow && !snow) snow = makeSnow();
+    if (snow) snow.visible = wantSnow;
+    if (wx === 'rain' && !rain) rain = makeRain();
+    if (rain) rain.visible = wx === 'rain';
+    // Nasse Strasse glänzt
+    const wet = wx === 'rain';
+    if (roadMat) { roadMat.shininess = wet ? 70 : 4; roadMat.specular.set(wet ? '#777777' : '#111111'); roadMat.color.set(wet ? '#b8bcc4' : '#ffffff'); }
+    // Weniger Grip bei Regen und Schnee
+    atm.grip = wx === 'rain' ? 0.82 : wx === 'snow' ? (theme.snowfall ? 0.92 : 0.78) : 1;
+    return { grip: atm.grip, night: tm === 'night', headlights: tm !== 'day' || wx === 'rain' || wx === 'fog', time: tm, weather: wx };
   }
 
   // Wird jedes Bild aufgerufen
@@ -628,8 +758,10 @@ window.buildWorld = function (track, theme, Q) {
   function update(dt, cam, carPos, inTun) {
     time += dt;
     dark += ((inTun ? 1 : 0) - dark) * Math.min(1, dt * 3); // im Tunnel sanft dunkler werden
-    hemi.intensity = theme.ambient * (1 - 0.6 * dark);
-    sun.intensity = theme.sunIntensity * (1 - 0.85 * dark);
+    hemi.intensity = atm.amb * (1 - 0.6 * dark);
+    sun.intensity = atm.sunI * (1 - 0.85 * dark);
+    cheer = Math.max(0, cheer - dt * 0.35);
+    animateCrowd(time);
     sky.position.copy(cam.position);
     if (stars) stars.position.copy(cam.position);
     sunSprite.position.copy(cam.position).addScaledVector(sunDir, 900);
@@ -646,11 +778,20 @@ window.buildWorld = function (track, theme, Q) {
       }
       snow.geometry.attributes.position.needsUpdate = true;
     }
+    if (rain && rain.visible) {
+      const a = rain.geometry.attributes.position.array, cx = cam.position.x, cy = cam.position.y, cz = cam.position.z;
+      for (let i = 0; i < a.length; i += 6) {
+        const fall = 32 * dt;
+        a[i + 1] -= fall; a[i + 4] -= fall;
+        if (a[i + 1] < cy - 10) { const x = cx + (Math.random() - 0.5) * 100, z = cz + (Math.random() - 0.5) * 100, y = cy + 20 + Math.random() * 15; a.set([x, y, z, x + 0.15, y + 1.1, z], i); }
+      }
+      rain.geometry.attributes.position.needsUpdate = true;
+    }
   }
 
   // Grenzen für die Minikarte
   const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
   for (const p of path) { bounds.minX = Math.min(bounds.minX, p.x); bounds.maxX = Math.max(bounds.maxX, p.x); bounds.minZ = Math.min(bounds.minZ, p.z); bounds.maxZ = Math.max(bounds.maxZ, p.z); }
 
-  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, waterAt, inTunnel, collide, update, bounds, limits: { x: HX - 12, z: HZ - 12 }, size: Math.max(HX, HZ), theme, track };
+  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, waterAt, inTunnel, collide, setAtmosphere, cheer: v => { cheer = Math.min(1, Math.max(cheer, v)); }, update, bounds, limits: { x: HX - 12, z: HZ - 12 }, size: Math.max(HX, HZ), theme, track };
 };

@@ -52,7 +52,7 @@
   // Einstellbare Werte (der Entwicklermodus ändert sie)
   const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
   const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
-  const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
+  const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1, musicVol: 0.5 }, DEBUG = { fps: false, info: false };
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
@@ -187,6 +187,39 @@
   });
   const resetKeys = () => { for (const k in keys) keys[k] = false; document.querySelectorAll('.btn').forEach(b => b.classList.remove('on')); };
 
+  // ---------- Kippsteuerung (Handy wie ein Lenkrad drehen) ----------
+  const TILT = { on: false, sens: 1, invert: false };
+  try { TILT.on = MOBILE && localStorage.getItem('rennspiel-tilt') === '1'; } catch (e) {}
+  let tiltSteer = 0, tiltSeen = false;
+  const IOS_DEV = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  window.addEventListener('devicemotion', e => {
+    const g = e.accelerationIncludingGravity;
+    if (!g || g.x == null) return;
+    tiltSeen = true;
+    const ang = (screen.orientation && screen.orientation.angle != null) ? screen.orientation.angle : (window.orientation || 0);
+    // Schwerkraft entlang der langen Bildschirmseite = wie stark das Handy gedreht ist
+    let v = ang === 90 ? g.y : (ang === 270 || ang === -90) ? -g.y : ang === 180 ? -g.x : g.x;
+    if (IOS_DEV) v = -v;          // iPhones melden die Richtung umgekehrt
+    if (TILT.invert) v = -v;
+    const deg = Math.asin(Math.max(-1, Math.min(1, v / 9.81))) * 180 / Math.PI;
+    const full = 28 / TILT.sens;  // so viel Grad = voller Lenkeinschlag
+    const x = Math.abs(deg) < 2.5 ? 0 : (deg - Math.sign(deg) * 2.5) / full; // kleine tote Zone in der Mitte
+    tiltSteer = Math.max(-1, Math.min(1, x));
+  });
+  async function setTilt(on) {
+    if (on && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try { if (await DeviceMotionEvent.requestPermission() !== 'granted') on = false; } catch (e) { on = false; }
+    }
+    TILT.on = on;
+    try { localStorage.setItem('rennspiel-tilt', on ? '1' : '0'); } catch (e) {}
+    $('touch').classList.toggle('tilt', on);
+    document.querySelectorAll('#ctrlMode .seg').forEach(b => b.classList.toggle('sel', (b.dataset.c === 'tilt') === on));
+    if (on) setTimeout(() => { if (!tiltSeen) flash('Kein Lagesensor gefunden', 1.5); }, 1500);
+  }
+  document.querySelectorAll('#ctrlMode .seg').forEach(b => b.addEventListener('click', () => setTilt(b.dataset.c === 'tilt')));
+  $('ctrlBar').style.display = MOBILE ? '' : 'none';
+  setTimeout(() => setTilt(TILT.on && !IOS_DEV), 0); // iPhone: Erlaubnis muss beim Antippen neu geholt werden
+
   // ---------- Sound (Motor + Pieptöne) ----------
   let audio = null, muted = false;
   try { muted = localStorage.getItem('rennspiel-muted') === '1'; } catch (e) {}
@@ -242,9 +275,33 @@
     Drivers.honk(char, audio.ctx, audio.ctx.destination);
     MP.sendHonk();
   }
+  let musicOn = true, musicVol = 0.5;
+  try { musicOn = localStorage.getItem('rennspiel-music') !== '0'; } catch (e) {}
+  function startMusic() {
+    if (!audio || muted || !musicOn) return;
+    Music.setVolume(SOUND.musicVol); Music.play(audio.ctx, theme && track.theme, track && track.id);
+  }
+  function updateMusicBtn() { $('musicBtn').textContent = musicOn ? '🎵' : '🎵̸'; $('musicBtn').style.opacity = musicOn ? 1 : 0.45; }
+  $('musicBtn').addEventListener('click', () => {
+    musicOn = !musicOn; updateMusicBtn();
+    try { localStorage.setItem('rennspiel-music', musicOn ? '1' : '0'); } catch (e) {}
+    if (musicOn && phase !== 'menu') { ensureAudio(); startMusic(); } else Music.stop();
+  });
+  updateMusicBtn();
+  // Jubel der Zuschauer
+  function cheerSound(len) {
+    if (!audio || muted) return;
+    const ctx = audio.ctx, t = ctx.currentTime, n = Math.floor(ctx.sampleRate * len), b = ctx.createBuffer(2, n, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (0.6 + 0.4 * Math.sin(i / ctx.sampleRate * (9 + ch * 3) * 6.28)); }
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = b; f.type = 'bandpass'; f.frequency.value = 1300; f.Q.value = 0.6;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(f).connect(g).connect(ctx.destination); src.start(t);
+  }
   function updateSoundBtn() { $('soundBtn').textContent = muted ? '🔇' : '🔊'; }
   $('soundBtn').addEventListener('click', () => {
     muted = !muted; updateSoundBtn(); ensureAudio();
+    if (muted) Music.stop(); else if (phase !== 'menu') startMusic();
     try { localStorage.setItem('rennspiel-muted', muted ? '1' : '0'); } catch (e) {}
   });
   updateSoundBtn();
@@ -298,6 +355,17 @@
   let soloBots = 3, botLevel = 2;
   try { const v = localStorage.getItem('rennspiel-bots'); if (v != null) soloBots = +v; botLevel = +(localStorage.getItem('rennspiel-botlevel') || 2); } catch (e) {}
   const hasRivals = () => MP.racing || Bots.list().length > 0;
+  // Wetter und Tageszeit (allein; im Mehrspieler wählt der Gastgeber), 'random' = Zufall
+  let atmTime = 'random', atmWeather = 'random', weatherGrip = 1, atmNow = null;
+  try { atmTime = localStorage.getItem('rennspiel-time') || 'random'; atmWeather = localStorage.getItem('rennspiel-weather') || 'random'; } catch (e) {}
+  const pick = (opts, w) => { let r = Math.random() * w.reduce((a, b) => a + b, 0); for (let k = 0; k < opts.length; k++) { r -= w[k]; if (r <= 0) return opts[k]; } return opts[0]; };
+  function resolveAtm() {
+    return {
+      time: atmTime === 'random' ? pick(['day', 'evening', 'night'], [5, 3, 2]) : atmTime,
+      weather: atmWeather === 'random' ? pick(['clear', 'rain', 'fog', 'snow'], [5, 2, 1.5, 1.5]) : atmWeather
+    };
+  }
+  const ATM_TEXT = { day: '☀️ Tag', evening: '🌇 Abend', night: '🌙 Nacht', clear: 'klar', rain: '🌧️ Regen', fog: '🌫️ Nebel', snow: '🌨️ Schnee' };
   const NO_MODS = { boost: 0, spin: 0, gripMin: 0, rocket: false, ghost: false, noTrees: false, offroadFree: false, star: false, ram: false };
   const itemMods = () => Items.enabled && (phase === 'race') ? Items.mods() : NO_MODS;
 
@@ -313,8 +381,12 @@
     applyCarToModel();
   }
 
-  function startRace(slot) {
+  function startRace(slot, atm) {
     resetKeys();
+    atmNow = world.setAtmosphere(atm || resolveAtm());
+    weatherGrip = atmNow.grip;
+    headlight.visible = atmNow.headlights || !!theme.night;
+    $('wxRow').style.display = ''; $('wx').textContent = ATM_TEXT[atmNow.time] + (atmNow.weather !== 'clear' ? ' · ' + ATM_TEXT[atmNow.weather] : '');
     // Bots: allein aus den Einstellungen, im Mehrspieler vom Gastgeber
     let entries = [];
     if (MP.racing) {
@@ -329,7 +401,7 @@
     }
     placeCarAtStart(typeof slot === 'number' ? slot : 0);
     Bots.setup({
-      world, track, theme, laps: lapsNeeded(), level: MP.racing ? MP.botLevel : botLevel, items: !!track.items || RACE.itemsAll, entries,
+      world, track, theme, laps: lapsNeeded(), level: MP.racing ? MP.botLevel : botLevel, items: !!track.items || RACE.itemsAll, entries, gripMul: weatherGrip,
       hooks: { spawnParticle, applyLook,
         onFinish: b => { if (MP.racing && MP.isHost) MP.botFinish(b.id, b.finish); },
         botShock: (x, z) => { spawnFx('shock', { x, z, y: world.surfaceHeight(x, z) }); Items.remoteEvent('bot', { k: 'shock', x, z }, car); MP.sendEvent({ k: 'shock', x: +x.toFixed(1), z: +z.toFixed(1) }); } }
@@ -355,6 +427,7 @@
   function goToMenu() {
     phase = 'menu';
     Bots.clear();
+    Music.stop();
     resetKeys();
     setUI('menu');
     renderMenu();
@@ -428,7 +501,7 @@
     const boostAmt = Math.max(M.boost, padBoost > 0 ? 0.45 : 0, M.rocket ? 0.55 : 0);
     let top = (sf.topAbs && !offFree ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * (sf.top || 1)) * clamp(1 - 2 * slope, 0.6, 1.3);
     top *= 1 + boostAmt;
-    let grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll; // rutschiger Boden: Fahrzeug-Wert 'loose'
+    let grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll * weatherGrip; // rutschiger Boden: Fahrzeug-Wert 'loose'; Regen/Schnee: weniger
     if (M.gripMin) grip = Math.max(grip, M.gripMin);
     if (boostAmt > 0 && vF < top) vF += perf.accel * 1.6 * dt; // Turbo schiebt kräftig an
     if (M.spin) vF *= Math.exp(-1.6 * dt);
@@ -448,7 +521,8 @@
     car.vz = fz * vF + sz * vS;
 
     // Lenken (bei wenig Grip reagiert das Auto träger)
-    const steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    let steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    if (!steer && input.steer != null) steer = input.steer; // Kippsteuerung: stufenlos
     car.steerVis += (steer * 0.45 - car.steerVis) * Math.min(1, dt * 10);
     const steerAmt = Math.min(1, Math.abs(vF) / 12) * (0.55 + 0.45 * Math.min(1, grip));
     car.angle += steer * perf.handling * steerAmt * Math.sign(vF) * dt;
@@ -558,7 +632,7 @@
       const before = Math.ceil(countdown);
       countdown -= dt;
       if (countdown <= 0) {
-        phase = 'race'; raceStart = lapStart = gameTime;
+        phase = 'race'; raceStart = lapStart = gameTime; world.cheer(1); cheerSound(2.5);
         flash('LOS!', 0.8); beep(880, 0.35);
       } else if (Math.ceil(countdown) !== before) {
         flash(String(Math.ceil(countdown)), 1); beep(440, 0.15);
@@ -570,6 +644,7 @@
 
     updateBots(dt);
     let input = keys;
+    if (TILT.on && MOBILE) input = Object.assign({}, keys, { steer: tiltSteer });
     if (phase === 'finished') input = { up: false, down: car.speed > 3, left: false, right: false };
     if (padBoost > 0) padBoost -= dt;
     if (phase === 'race') Items.update(dt, car);
@@ -588,6 +663,8 @@
         else {
           lap++;
           flash(lap === lapsNeeded() ? 'Letzte Runde!' : 'Runde ' + lap, 1.2);
+          if (lap === lapsNeeded()) Music.faster(true);
+          world.cheer(0.7);
           beep(660, 0.2);
         }
       }
@@ -612,11 +689,56 @@
     lastResult = { total, best, newTotal, newLap };
     myFinish = total;
     if (MP.racing) MP.sendFinish(total);
-    flash('ZIEL!', 1.6); setTimeout(honk, 500);
+    flash('ZIEL!', 1.6); setTimeout(honk, 500); world.cheer(1); cheerSound(3.5);
     beep(880, 0.15); setTimeout(() => beep(1320, 0.3), 160);
   }
+  // Online-Bestenliste: eintragen und anzeigen
+  let lbPending = null; // Zeit, die noch eingetragen werden soll
+  const myLbName = () => { let n = ''; try { n = localStorage.getItem('rennspiel-name') || ''; } catch (e) {} return n.trim().slice(0, 16); };
+  function lbEligible() { return DevMode.changed() === 0; }
+  function lbSubmit(time) {
+    const n = myLbName();
+    if (!n) { lbPending = time; renderLb(); return; }
+    lbPending = null;
+    $('lbNote').textContent = 'Wird eingetragen …';
+    Leaderboard.submit(track.id, { n, t: time, c: char.name, v: carCfg.name }, (place, err) => {
+      const mine = Leaderboard.get(track.id).find(e => e.n.toLowerCase() === n.toLowerCase());
+      $('lbNote').textContent = err ? 'Keine Verbindung – Zeit nicht eingetragen.'
+        : place ? '🎉 Platz ' + place + ' der Bestenliste!'
+        : mine && mine.t < time ? 'Deine Bestzeit (' + fmt(mine.t) + ') bleibt stehen.' : 'Nicht in den Top 10 – nächstes Mal!';
+      renderLb();
+    });
+  }
+  function renderLb() {
+    const list = Leaderboard.get(track.id), me = myLbName().toLowerCase();
+    const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    $('lbList').innerHTML = list.length ? list.map((e, k) => `<div class="lbRow${e.n.toLowerCase() === me ? ' me' : ''}"><span>${k + 1}.</span><span class="nm">${esc(e.n)}<small>${esc(e.c)} · ${esc(e.v)}</small></span><span>${fmt(e.t)}</span></div>`).join('')
+      : '<div class="lbEmpty">' + (Leaderboard.loaded(track.id) ? 'Noch keine Zeiten – sei die oder der Erste!' : 'Lade Bestenliste …') + '</div>';
+    $('lbName').style.display = lbPending != null ? '' : 'none';
+  }
+  $('lbSave').addEventListener('click', () => {
+    const n = $('lbNameInput').value.trim().slice(0, 16);
+    if (!n) return;
+    try { localStorage.setItem('rennspiel-name', n); } catch (e) {}
+    $('mpName').value = n;
+    if (lbPending != null) lbSubmit(lbPending);
+  });
+  Leaderboard.onChange = id => {
+    if (track && id === track.id && $('results').style.display === 'flex') renderLb();
+    updateTrackLb(id);
+  };
+  function updateTrackLb(id) {
+    const el = document.getElementById('lb-' + id); if (!el) return;
+    const top = Leaderboard.get(id)[0];
+    el.textContent = top ? '🌍 ' + top.n + ' ' + fmt(top.t) : '🌍 noch kein Weltrekord';
+  }
+  Leaderboard.connect();
+
   function showResults() {
     const r = lastResult;
+    $('lbNote').textContent = lbEligible() ? '' : 'Entwicklermodus aktiv – Zeit zählt nicht für die Bestenliste.';
+    renderLb();
+    if (lbEligible() && r.total) lbSubmit(r.total);
     $('againBtn').style.display = MP.racing ? 'none' : '';
     $('resMenuBtn').textContent = MP.active ? 'Zur Lobby' : 'Strecke wählen';
     $('resMP').style.display = hasRivals() ? '' : 'none';
@@ -832,7 +954,14 @@
 
   // ---------- Menü ----------
   const DIFF = { 1: ['Leicht', 'easy'], 2: ['Mittel', 'mid'], 3: ['Schwer', 'hard'] };
+  function renderAtmSettings() {
+    document.querySelectorAll('#atmTime .seg').forEach(b => b.classList.toggle('sel', b.dataset.v === atmTime));
+    document.querySelectorAll('#atmWeather .seg').forEach(b => b.classList.toggle('sel', b.dataset.v === atmWeather));
+  }
+  document.querySelectorAll('#atmTime .seg').forEach(b => b.addEventListener('click', () => { atmTime = b.dataset.v; try { localStorage.setItem('rennspiel-time', atmTime); } catch (e) {} renderAtmSettings(); }));
+  document.querySelectorAll('#atmWeather .seg').forEach(b => b.addEventListener('click', () => { atmWeather = b.dataset.v; try { localStorage.setItem('rennspiel-weather', atmWeather); } catch (e) {} renderAtmSettings(); }));
   function renderBotSettings() {
+    renderAtmSettings();
     $('botCount').innerHTML = [0, 1, 2, 3, 4, 5].map(k => `<button class="seg${k === soloBots ? ' sel' : ''}" data-n="${k}">${k}</button>`).join('');
     $('botCount').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { soloBots = +b.dataset.n; try { localStorage.setItem('rennspiel-bots', soloBots); } catch (e) {} renderBotSettings(); }));
     $('botLevel').querySelectorAll('button').forEach(b => b.classList.toggle('sel', +b.dataset.l === botLevel));
@@ -853,9 +982,10 @@
       card.style.background = `linear-gradient(165deg, ${th.skyTop} 0%, ${th.skyBottom} 52%, ${th.ground} 53%, ${th.groundVar} 100%)`;
       card.innerHTML = `<div class="emoji">${th.emoji}<span class="diff ${d[1]}">${d[0]}</span>${t.items ? '<span class="diff itm">🎁 Items</span>' : ''}</div><div class="cinfo"><div class="cname">${t.name}</div>
         <div class="ctheme">${th.name} · ${t.laps} Runden</div><div class="cdesc">${t.info}</div>
-        <div class="crec">🏆 ${rec.total != null ? fmt(rec.total) : 'noch keine Zeit'}</div></div>`;
+        <div class="crec">🏆 ${rec.total != null ? fmt(rec.total) : 'noch keine Zeit'}</div><div class="crec" id="lb-${t.id}"></div></div>`;
       card.addEventListener('click', () => { ensureAudio(); chooseTrack(t); });
       grid.appendChild(card);
+      updateTrackLb(t.id);
     }
     showStep(menuStep);
   }
@@ -906,6 +1036,7 @@
       if (!track || track.id !== t.id) loadTrack(t);
       $('loading').style.display = 'none';
       startRace();
+      startMusic();
     }, 40);
   }
 
@@ -967,10 +1098,12 @@
 
   // ---------- Entwicklermodus ----------
   DevMode.init({
-    targets: { tune: TUNE, phys: PHYS, cam: camModes[0], surf: SURFACES, race: RACE, sound: SOUND, debug: DEBUG },
+    targets: { tilt: TILT, tune: TUNE, phys: PHYS, cam: camModes[0], surf: SURFACES, race: RACE, sound: SOUND, debug: DEBUG },
     onChange(path) {
       if (path.startsWith('tune.') || path === 'phys.ignoreStats') computePerf();
       if (path === 'cam.fov') { camera.fov = camModes[0].fov; camera.updateProjectionMatrix(); }
+      if (path === 'sound.musicVol') Music.setVolume(SOUND.musicVol);
+      if (path === 'tilt.sens' || path === 'tilt.invert') {}
       if (path.startsWith('debug.')) $('debug').style.display = DEBUG.fps || DEBUG.info ? 'block' : 'none';
     }
   });
@@ -1137,14 +1270,16 @@
     vx: r2(car.vx), vz: r2(car.vz), sp: r2(car.speed), st: r2(car.steerVis), pr: r2(myProgress()),
     f: (Items.enabled ? Items.flags() : 0) | (padBoost > 0 ? 8 : 0)
   } : null;
-  MP.onStart = (trackId, slot, laps) => {
+  MP.getAtm = () => resolveAtm();
+  MP.onStart = (trackId, slot, laps, atm) => {
     const t = TRACKS.find(x => x.id === trackId) || TRACKS[0];
     $('loading').style.display = 'flex'; $('loading').textContent = 'Lade ' + t.name + ' …';
     setTimeout(() => {
       if (!track || track.id !== t.id) loadTrack(t);
       $('loading').style.display = 'none';
       ensureAudio();
-      startRace(slot);
+      startRace(slot, atm);
+      startMusic();
     }, 30);
   };
   MP.onHonk = id => {
@@ -1160,7 +1295,7 @@
   };
   MP.onEvent = (id, e) => { if (phase === 'race' || phase === 'countdown' || phase === 'finished') { Items.remoteEvent(id, e, car); if (e.k === 'shock') Bots.shock(e.x, e.z, null, false); } };
   MP.getExtraStates = () => Bots.states();
-  MP.onLobby = () => { if (phase === 'menu') updateModeUI(); };
+  MP.onLobby = () => { if (phase === 'menu') $('atmSettings').style.display = mpMode && !(MP.active && MP.isHost) ? 'none' : ''; if (phase === 'menu') updateModeUI(); };
   MP.onRaceEnd = () => { if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); } }; // Gastgeber ist zurück in der Lobby
 
   // Allein oder mit Freunden?
@@ -1176,6 +1311,7 @@
     $('tab3sub').textContent = mpMode ? (MP.active ? 'Raum ' + (document.getElementById('mpCode').textContent) : 'mit Freunden') : "los geht's";
     $('trackGrid').style.display = mpMode ? 'none' : '';
     $('botSettings').style.display = mpMode ? 'none' : '';
+    $('atmSettings').style.display = mpMode && !(MP.active && MP.isHost) ? 'none' : '';
     $('lobby').style.display = mpMode ? '' : 'none';
     $('nextToTrack').textContent = mpMode ? 'Weiter: Lobby →' : 'Weiter: Strecke wählen →';
   }
@@ -1201,6 +1337,6 @@
     chooseTrack: id => chooseTrack(TRACKS.find(t => t.id === id)), get world() { return world; }, camera, renderer, car, keys,
     // Simuliert Sekunden ohne Bild (zum Testen)
     sim(sec, input) { Object.assign(keys, input || {}); for (let t = 0; t < sec; t += 1 / 60) update(1 / 60); },
-    get phase() { return phase; }, togglePause, lapTimes: () => lapTimes, standings: () => standings()
+    get phase() { return phase; }, togglePause, setAtm: a => { atmNow = world.setAtmosphere(a); weatherGrip = atmNow.grip; headlight.visible = atmNow.headlights || !!theme.night; $('wx').textContent = ATM_TEXT[atmNow.time] + (atmNow.weather !== 'clear' ? ' · ' + ATM_TEXT[atmNow.weather] : ''); return atmNow; }, tilt: () => ({ on: TILT.on, steer: tiltSteer }), setTilt, lapTimes: () => lapTimes, standings: () => standings()
   };
 })();

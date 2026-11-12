@@ -166,6 +166,18 @@
   .segs { display: flex; background: rgba(0,0,0,.35); border-radius: 999px; padding: 3px; gap: 2px; }
   .seg { border: 0; border-radius: 999px; padding: 6px 11px; color: #fff; background: transparent; font-weight: 800; font-size: 13px; }
   .seg.sel { background: linear-gradient(90deg, #ff7043, #ff2bd6); }
+  .botBar.slim { padding: 6px 12px; margin: 10px 0 0; }
+  #touch.tilt [data-key="left"], #touch.tilt [data-key="right"] { display: none; }
+  #resLB { margin-top: 12px; text-align: left; font-size: 14px; max-height: 32vh; overflow-y: auto; touch-action: pan-y; }
+  #lbNote { font-size: 12px; opacity: .85; margin: 2px 0 4px; }
+  .lbRow { display: grid; grid-template-columns: 26px 1fr auto; gap: 6px; padding: 4px 8px; border-radius: 8px; margin-top: 3px; background: rgba(255,255,255,.06); font-variant-numeric: tabular-nums; align-items: center; }
+  .lbRow small { display: block; font-size: 10px; opacity: .65; }
+  .lbRow.me { outline: 2px solid #ffd54a; background: rgba(255,213,74,.12); }
+  .lbEmpty { opacity: .7; font-size: 13px; padding: 4px 0; }
+  #lbName { display: flex; gap: 6px; margin: 6px 0; }
+  #lbName input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: rgba(0,0,0,.35); color: #fff; user-select: text; -webkit-user-select: text; }
+  #lbName button { border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 800; color: #fff; background: linear-gradient(90deg, #ff7043, #ff2bd6); }
+  .box { max-height: 92vh; overflow-y: auto; }
   .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
   #devPanel { z-index: 20; align-items: stretch; }
   .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
@@ -220,6 +232,9 @@
     <button id="modeSolo" class="active">🏎️ Alleine</button>
     <button id="modeMP">👥 Mit Freunden</button>
   </div>
+  <div id="ctrlBar" class="botBar slim" style="display:none">
+    <div><span>🎮 Steuerung</span><div class="segs" id="ctrlMode"><button class="seg sel" data-c="buttons">Knöpfe</button><button class="seg" data-c="tilt">📱 Kippen</button></div></div>
+  </div>
   <div id="steps">
     <button class="tab active"><b>1</b>Fahrer<small id="sumChar"></small></button>
     <button class="tab"><b>2</b>Fahrzeug<small id="sumCar"></small></button>
@@ -258,6 +273,10 @@
     <button class="next" data-go="2" id="nextToTrack">Weiter: Strecke wählen →</button>
   </section>
   <section class="page" style="display:none">
+    <div id="atmSettings" class="botBar">
+      <div><span>🕒 Tageszeit</span><div class="segs" id="atmTime"><button class="seg" data-v="random">🎲</button><button class="seg" data-v="day">☀️</button><button class="seg" data-v="evening">🌇</button><button class="seg" data-v="night">🌙</button></div></div>
+      <div><span>Wetter</span><div class="segs" id="atmWeather"><button class="seg" data-v="random">🎲</button><button class="seg" data-v="clear">☀️</button><button class="seg" data-v="rain">🌧️</button><button class="seg" data-v="fog">🌫️</button><button class="seg" data-v="snow">🌨️</button></div></div>
+    </div>
     <div id="botSettings" class="botBar">
       <div><span>🤖 Gegner</span><div class="segs" id="botCount"></div></div>
       <div><span>Stärke</span><div class="segs" id="botLevel"><button class="seg" data-l="1">Leicht</button><button class="seg" data-l="2">Mittel</button><button class="seg" data-l="3">Schwer</button></div></div>
@@ -298,6 +317,7 @@
   <div><span class="l">Beste Runde</span><span id="best">–</span></div>
   <div><span class="l">Tempo</span><span id="speed">0</span> km/h</div>
   <div><span class="l">Belag</span><span id="surface">Asphalt</span></div>
+  <div id="wxRow" style="display:none"><span class="l">Wetter</span><span id="wx"></span></div>
   <div id="placeRow" style="display:none"><span class="l">Platz</span><span id="place"></span></div>
 </div>
 <div id="itemHud" style="display:none">
@@ -312,6 +332,7 @@
 </div>
 <div id="topBtns" style="display:none">
   <button class="round" id="soundBtn" title="Ton">🔊</button>
+  <button class="round" id="musicBtn" title="Musik">🎵</button>
   <button class="round" id="hornBtn" title="Hupe">📣</button>
   <button class="round" id="camBtn" title="Kamera">🎥</button>
   <button class="round" id="pauseBtn" title="Pause">⏸</button>
@@ -359,6 +380,12 @@
     <div id="resTotal"></div>
     <div id="resLaps"></div>
     <div id="resMP" style="display:none"></div>
+    <div id="resLB">
+      <b>🌍 Bestenliste</b>
+      <div id="lbNote"></div>
+      <div id="lbName" style="display:none"><input id="lbNameInput" maxlength="16" placeholder="Dein Name"><button id="lbSave">Eintragen</button></div>
+      <div id="lbList"></div>
+    </div>
     <button class="big primary" id="againBtn">Nochmal fahren</button>
     <button class="big" id="resMenuBtn">Strecke wählen</button>
   </div>
@@ -378,6 +405,8 @@
 <script src="car.js"></script>
 <script src="mqtt.min.js"></script>
 <script src="mp.js"></script>
+<script src="music.js"></script>
+<script src="leaderboard.js"></script>
 <script src="items.js"></script>
 <script src="bots.js"></script>
 <script src="devmode.js"></script>

@@ -41,6 +41,7 @@ window.MP = (() => {
     finishes: new Map(),  // id -> Zeit im Ziel
     trackId: null, laps: 0, slots: {}, botCount: 0, botLevel: 2,
     getExtraStates: null, // vom Spiel: Zustände der Bots (nur Gastgeber)
+    getAtm: null,         // vom Spiel: Wetter und Tageszeit (nur Gastgeber)
     // vom Spiel gesetzt:
     getInfo: null, getState: null, onStart: null, onHonk: null, onLeave: null, onLobby: null, onRaceEnd: null, onEvent: null
   };
@@ -214,8 +215,9 @@ window.MP = (() => {
     for (const p of api.players.values()) if (p.bot) slots[p.id] = k++;   // Bots starten vorne
     for (const p of api.players.values()) if (!p.bot) slots[p.id] = k++;  // Menschen dahinter
     api.racing = true; api.finishes.clear(); api.laps = track.laps; api.slots = slots;
-    publish('down', { t: 'start', track: track.id, laps: track.laps, slots });
-    api.onStart && api.onStart(track.id, slots[api.myId], track.laps);
+    const atm = api.getAtm ? api.getAtm() : null;
+    publish('down', { t: 'start', track: track.id, laps: track.laps, slots, atm });
+    api.onStart && api.onStart(track.id, slots[api.myId], track.laps, atm);
   }
   function endRace() { // zurück in die Lobby
     api.racing = false; api.remote.clear();
@@ -282,7 +284,7 @@ window.MP = (() => {
     } else if (d.t === 'start') {
       if (!(api.myId in d.slots)) return;
       api.racing = true; api.finishes.clear(); api.laps = d.laps; api.trackId = d.track; api.slots = d.slots;
-      api.onStart && api.onStart(d.track, d.slots[api.myId] || 0, d.laps);
+      api.onStart && api.onStart(d.track, d.slots[api.myId] || 0, d.laps, d.atm);
     } else if (d.t === 'ss') {
       for (const it of d.list) if (it.id !== api.myId) pushRemote(it.id, it.s);
     } else if (d.t === 'fin') {
