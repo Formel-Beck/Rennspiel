@@ -67,7 +67,7 @@
   :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); }
   #hud { top: calc(10px + var(--st)); left: calc(10px + var(--sl)); font-variant-numeric: tabular-nums; line-height: 1.5; font-size: 15px; }
   #hud span.l { display: inline-block; min-width: 108px; color: #ffd54a; font-weight: 600; }
-  #help { top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .85; white-space: nowrap; }
+  #help { bottom: calc(10px + var(--sb)); left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .85; white-space: nowrap; }
   #help kbd { background: rgba(255,255,255,.2); border-radius: 4px; padding: 0 5px; font-family: inherit; }
   #topBtns { position: fixed; top: calc(10px + var(--st)); right: calc(10px + var(--sr)); display: flex; gap: 8px; }
   .round { width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; }
@@ -141,6 +141,24 @@
   #resMP { margin-top: 10px; text-align: left; font-size: 15px; }
   .mpRes { display: grid; grid-template-columns: 28px 1fr auto; gap: 6px; padding: 5px 10px; border-radius: 8px; margin-top: 4px; background: linear-gradient(90deg, var(--c), rgba(0,0,0,.25)); font-variant-numeric: tabular-nums; }
   .mpRes.me { outline: 2px solid #ffd54a; }
+  #itemHud { position: fixed; top: calc(10px + var(--st)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    background: rgba(0,0,0,.5); padding: 6px 12px 6px 6px; border-radius: 999px; z-index: 4; }
+  #itemSlot { width: 58px; height: 58px; border-radius: 50%; border: 3px solid #ffd54a; background: radial-gradient(circle, rgba(255,255,255,.25), rgba(0,0,0,.4));
+    display: flex; align-items: center; justify-content: center; font-size: 26px; cursor: pointer; letter-spacing: -6px; }
+  #itemSlot.empty { border-color: rgba(255,255,255,.3); }
+  #itemName { font-size: 13px; font-weight: 800; margin-bottom: 4px; white-space: nowrap; }
+  #specBar { position: relative; width: 170px; height: 20px; border-radius: 999px; background: rgba(255,255,255,.15); overflow: hidden; cursor: pointer; }
+  #specFill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #7c4dff, #ff4fa3); }
+  #specName { position: relative; font-size: 11px; font-weight: 800; line-height: 20px; padding-left: 8px; white-space: nowrap; }
+  #itemHud.ready #specBar { box-shadow: 0 0 0 2px #ffd54a, 0 0 12px #ff4fa3; animation: pulse 0.8s infinite alternate; }
+  @keyframes pulse { to { box-shadow: 0 0 0 2px #fff, 0 0 20px #ffd54a; } }
+  #touch .grp.right { flex-direction: column; align-items: flex-end; gap: 10px; }
+  .itembtns { display: flex; gap: 14px; pointer-events: none; }
+  .btn.small { width: 62px; height: 62px; font-size: 26px; }
+  .btn.dim { opacity: .35; }
+  @media (pointer: coarse) { #itemHud { top: auto; bottom: calc(16px + var(--sb)); } #specBar { width: 130px; } }
+  #charSpecial { font-size: 12px; margin-top: 6px; opacity: .95; } #charSpecial small { opacity: .7; }
+  .diff.itm { background: #7c4dff; margin-right: 6px; }
   .devOpen { margin-top: 22px; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; padding: 10px 16px; color: #fff; background: rgba(0,0,0,.45); font-size: 14px; font-weight: 700; }
   #devPanel { z-index: 20; align-items: stretch; }
   .devbox { background: rgba(16,21,38,.97); width: min(560px, 100%); margin: 0 auto; display: flex; flex-direction: column; overflow-y: auto; touch-action: pan-y;
@@ -209,6 +227,7 @@
           <div id="charTitle"></div>
           <div id="charInfo"></div>
           <div id="charStats"></div>
+          <div id="charSpecial"></div>
           <button id="hornTest">📣 Hupe testen</button>
         </div>
       </div>
@@ -266,8 +285,15 @@
   <div><span class="l">Belag</span><span id="surface">Asphalt</span></div>
   <div id="placeRow" style="display:none"><span class="l">Platz</span><span id="place"></span></div>
 </div>
+<div id="itemHud" style="display:none">
+  <div id="itemSlot" class="empty"><span id="itemIcon"></span></div>
+  <div id="itemSide">
+    <div id="itemName">?-Box einsammeln</div>
+    <div id="specBar"><div id="specFill"></div><span id="specName"></span></div>
+  </div>
+</div>
 <div id="help" class="panel" style="display:none">
-  <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> fahren · <kbd>H</kbd> Hupe · <kbd>C</kbd> Kamera · <kbd>P</kbd> Pause · <kbd>R</kbd> Neustart
+  <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> fahren · <kbd>Leertaste</kbd> Item · <kbd>Q</kbd> Spezial · <kbd>H</kbd> Hupe · <kbd>C</kbd> Kamera · <kbd>P</kbd> Pause · <kbd>R</kbd> Neustart
 </div>
 <div id="topBtns" style="display:none">
   <button class="round" id="soundBtn" title="Ton">🔊</button>
@@ -281,7 +307,10 @@
 
 <div id="touch">
   <div class="grp"><div class="btn" data-key="left">◀</div><div class="btn" data-key="right">▶</div></div>
-  <div class="grp"><div class="btn" data-key="down">▼</div><div class="btn" data-key="up">▲</div></div>
+  <div class="grp right">
+    <div class="itembtns"><div class="btn small itembtn" id="btnSpecial">★</div><div class="btn small itembtn" id="btnItem">🎁</div></div>
+    <div class="grp"><div class="btn" data-key="down">▼</div><div class="btn" data-key="up">▲</div></div>
+  </div>
 </div>
 
 <div id="pauseMenu" class="overlay">
@@ -334,6 +363,7 @@
 <script src="car.js"></script>
 <script src="mqtt.min.js"></script>
 <script src="mp.js"></script>
+<script src="items.js"></script>
 <script src="devmode.js"></script>
 <script src="game.js"></script>
 <script>

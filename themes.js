@@ -79,5 +79,16 @@ window.THEMES = {
     props: [{ type: 'snowpine', count: 240 }, { type: 'rock', count: 40, color: '#8a9099' },
             { type: 'snowman', count: 8, minDist: 4, maxDist: 16 }],
     backdrop: 'peaks'
+  },
+  rainbow: {
+    name: 'Regenbogen', emoji: '🌈',
+    skyTop: '#5b6cff', skyBottom: '#ffc6e8', fog: [220, 700],
+    ground: '#7ed957', groundVar: '#5fc24a',
+    road: '#5b5f6b', roadLine: '#ffffff', curb: ['#ff4fa3', '#ffe14d'], banner: '#ff4fa3',
+    sun: '#fff1d6', sunIntensity: 1.0, sunDir: [0.4, 1, 0.3], ambient: 0.65, hemiGround: '#88cc66',
+    hills: 14, rock: '#8f8478', rockAbove: 58, snowAbove: 105,
+    roadSurface: 'asphalt', offroadSurface: 'grass',
+    props: [{ type: 'lolli', count: 70 }, { type: 'tree', count: 90 }, { type: 'pine', count: 90 }, { type: 'bush', count: 100 }, { type: 'rock', count: 40, color: '#b39ddb' }],
+    backdrop: 'peaks'
   }
 };

@@ -58,6 +58,7 @@ window.buildWorld = function (track, theme, Q) {
   // Wie gross muss die Welt sein? (wächst mit der Strecke)
   let maxX = 0, maxZ = 0;
   for (const p of path) { maxX = Math.max(maxX, Math.abs(p.x)); maxZ = Math.max(maxZ, Math.abs(p.z)); }
+  for (const rv of track.rivers || []) for (const p of rv.points) { maxX = Math.max(maxX, Math.abs(p[0]) - 40); maxZ = Math.max(maxZ, Math.abs(p[1]) - 40); }
   const HX = Math.max(220, maxX + 90), HZ = Math.max(165, maxZ + 80);
   const areaScale = clamp((HX * HZ) / (220 * 165), 1, 2.2); // mehr Platz = mehr Deko
 
@@ -94,31 +95,97 @@ window.buildWorld = function (track, theme, Q) {
   const noise = (x, z) => Math.sin(x * 0.021 + 1.7) * Math.cos(z * 0.027) * 0.6 +
     Math.sin(x * 0.053 - z * 0.041 + 0.4) * 0.3 + Math.sin(z * 0.09 + x * 0.013) * 0.15 + 0.25;
 
-  function terrainInfo(x, z) {
-    let sw = 0, sy = 0, dmin2 = Infinity, best = 0;
-    for (let i = 0; i < N; i++) {
-      const p = path[i], dx = p.x - x, dz = p.z - z, d2 = dx * dx + dz * dz;
-      if (d2 < dmin2) { dmin2 = d2; best = i; }
-      const w = 1 / ((d2 + 40) * (d2 + 40));
-      sw += w; sy += w * p.y;
+  // ---------- Raster der Strassenpunkte (macht grosse Welten schnell) ----------
+  const PG = 40, pathGrid = new Map();
+  path.forEach((p, i) => {
+    const k = Math.floor(p.x / PG) * 100000 + Math.floor(p.z / PG);
+    if (!pathGrid.has(k)) pathGrid.set(k, []);
+    pathGrid.get(k).push(i);
+  });
+  const meanY = path.reduce((a, p) => a + p.y, 0) / N;
+
+  // ---------- Tunnel (Abschnitte der Strecke, from/to = Anteil der Runde) ----------
+  const inTunnel = new Uint8Array(N);
+  for (const t of track.tunnels || []) {
+    for (let i = Math.floor(t.from * N); i <= Math.ceil(t.to * N); i++) inTunnel[((i % N) + N) % N] = 1;
+  }
+  const nearTunnel = new Uint8Array(N); // Tunnel + etwas Rand (dort bleibt der Berg über der Strasse)
+  for (let i = 0; i < N; i++) if (inTunnel[i]) for (let k = -1; k <= 1; k++) nearTunnel[(i + k + N) % N] = 1;
+
+  // ---------- Flüsse ----------
+  const rivers = (track.rivers || []).map(rv => ({ pts: rv.points.map(p => ({ x: p[0], z: p[1], y: p[2] })), w: rv.width || 22 }));
+  // Abstand zum nächsten Fluss und Wasserhöhe dort
+  function riverInfo(x, z) {
+    let best = null;
+    for (const rv of rivers) for (let i = 0; i < rv.pts.length - 1; i++) {
+      const A = rv.pts[i], B = rv.pts[i + 1], ex = B.x - A.x, ez = B.z - A.z, L2 = ex * ex + ez * ez;
+      const t = clamp(((x - A.x) * ex + (z - A.z) * ez) / L2, 0, 1);
+      const d = Math.hypot(x - (A.x + ex * t), z - (A.z + ez * t));
+      if (!best || d < best.d) best = { d, y: A.y + (B.y - A.y) * t, w: rv.w };
     }
-    let h = sy / sw;
-    const dmin = Math.sqrt(dmin2);
-    h += noise(x, z) * (theme.hills || 0) * clamp((dmin - edge - 12) / 70, 0, 1);
-    // Direkt neben der Strasse liegt das Gelände immer etwas tiefer als die Fahrbahn
-    const roadY = Math.min(path[best].y, path[(best + 1) % N].y, path[(best - 1 + N) % N].y) - 0.3;
-    h = h + (Math.min(h, roadY) - h) * (1 - smooth(edge + CURB + 1, edge + 10, dmin));
+    return best;
+  }
+
+  // ---------- Gelände-Höhe ----------
+  // Folgt der Strasse; weiter weg Hügel und Berge; Flüsse graben ein Bett.
+  function terrainInfo(x, z) {
+    let sw = 0, sy = 0, dmin2 = Infinity, best = -1;
+    const gx = Math.floor(x / PG), gz = Math.floor(z / PG);
+    for (let ix = gx - 4; ix <= gx + 4; ix++) for (let iz = gz - 4; iz <= gz + 4; iz++) {
+      const list = pathGrid.get(ix * 100000 + iz); if (!list) continue;
+      for (const i of list) {
+        const p = path[i], dx = p.x - x, dz = p.z - z, d2 = dx * dx + dz * dz;
+        if (d2 < dmin2) { dmin2 = d2; best = i; }
+        const w = 1 / ((d2 + 40) * (d2 + 40));
+        sw += w; sy += w * p.y;
+      }
+    }
+    const dmin = best < 0 ? 999 : Math.sqrt(dmin2);
+    let h = best < 0 ? meanY : sy / sw;
+    h += (meanY - h) * smooth(90, 160, dmin);              // ganz weit weg: mittlere Höhe
+    let away = clamp((dmin - edge - 12) / 70, 0, 1);
+    let rv = null;
+    if (rivers.length) { rv = riverInfo(x, z); if (rv) away *= smooth(rv.w / 2, rv.w / 2 + 60, rv.d); }
+    h += noise(x, z) * (theme.hills || 0) * away;
+    // Berge
+    const tun = best >= 0 && nearTunnel[best];
+    for (const m of track.mountains || []) {
+      const d = Math.hypot(x - m[0], z - m[1]), r = m[2];
+      if (d >= r) continue;
+      const f = Math.pow(1 - d / r, 1.3); // spitz zulaufend
+      h += m[3] * f * (tun ? 1 : clamp((dmin - edge - 4) / 24, 0, 1)) * (0.85 + 0.15 * noise(x * 3, z * 3));
+    }
+    // Flussbett
+    if (rv) {
+      if (rv.d < rv.w / 2 + 16) h += (Math.min(h, rv.y - 2.2) - h) * (1 - smooth(rv.w / 2 - 2, rv.w / 2 + 16, rv.d));
+    }
+    // Direkt neben der Strasse liegt das Gelände immer etwas tiefer als die Fahrbahn.
+    // Beim Tunnel nur ein schmaler Einschnitt – darin liegt die Tunnelröhre.
+    if (best >= 0) {
+      const roadY = Math.min(path[best].y, path[(best + 1) % N].y, path[(best - 1 + N) % N].y) - 0.3;
+      h = h + (Math.min(h, roadY) - h) * (1 - (tun ? smooth(edge + 12, edge + 20, dmin) : smooth(edge + CURB + 1, edge + 10, dmin)));
+    }
     if (theme.shoreZ != null) h -= clamp((z - theme.shoreZ) * 0.18, 0, 7);
     const e = Math.max(clamp((Math.abs(x) - (HX - 40)) / 50, 0, 1), clamp((Math.abs(z) - (HZ - 40)) / 50, 0, 1));
-    const edgeH = (theme.shoreZ != null && z > 0) ? -7 : 0;
-    return { h: h * (1 - e) + edgeH * e, dmin };
+    const edgeH = (theme.shoreZ != null && z > 0) ? -7 : meanY * 0.5;
+    return { h: h * (1 - e) + edgeH * e, dmin, best };
+  }
+  // Wasserhöhe an dieser Stelle (oder null, wenn kein Wasser)
+  function waterAt(x, z) {
+    if (theme.shoreZ != null && terrainInfo(x, z).h < -0.6) return -0.6;
+    if (!rivers.length) return null;
+    const rv = riverInfo(x, z);
+    return rv && rv.d < rv.w / 2 + 2 ? rv.y : null;
   }
   const terrainHeight = (x, z) => terrainInfo(x, z).h;
 
   // Höhe an jeder Stelle (Strasse oder Gelände)
   function surfaceHeight(x, z) {
     const r = roadInfo(x, z);
-    return r.dist < edge + CURB ? r.y + 0.05 : terrainHeight(x, z);
+    if (r.dist < edge + CURB) return r.y + 0.05;
+    const h = terrainHeight(x, z);
+    if (rivers.length) { const w = waterAt(x, z); if (w != null && h < w - 0.35) return w - 0.35; } // im Fluss: Auto schwimmt halb
+    return h;
   }
 
   // ---------- Kollisionen: feste Objekte in einem Raster speichern ----------
@@ -160,16 +227,18 @@ window.buildWorld = function (track, theme, Q) {
     return hit ? { x: px, z: pz } : null;
   }
   // Wie dick sind die festen Teile der Deko? (Radius bei Grösse 1)
-  const SOLID = { pine: 0.6, snowpine: 0.6, tree: 0.6, rock: 1.25, cactus: 0.7, palm: 0.45, umbrella: 0.15, snowman: 1.0, lamp: 0.3 };
+  const SOLID = { pine: 0.6, snowpine: 0.6, tree: 0.6, rock: 1.25, cactus: 0.7, palm: 0.45, umbrella: 0.15, snowman: 1.0, lamp: 0.3, lolli: 0.3 };
 
   // ---------- 4. Gelände-Mesh ----------
   {
     const TW = 2 * HX + 40, TD = 2 * HZ + 40;
-    const g = new THREE.PlaneGeometry(TW, TD, Math.round(TW / Q.terrainRes), Math.round(TD / Q.terrainRes));
+    const res = Math.max(Q.terrainRes, Math.sqrt(TW * TD / Q.terrainMaxVerts)); // grosse Welten: gröbere Kästchen
+    const g = new THREE.PlaneGeometry(TW, TD, Math.round(TW / res), Math.round(TD / res));
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position, colors = [];
     const c1 = new THREE.Color(theme.ground), c2 = new THREE.Color(theme.groundVar), tmp = new THREE.Color();
     const sand = theme.sand && new THREE.Color(theme.sand), wet = new THREE.Color('#c2a873');
+    const snowC = new THREE.Color('#f4f8fc'), bankC = new THREE.Color('#b9a98a');
     const rockC = theme.rock && new THREE.Color(theme.rock), side = theme.sidewalk && new THREE.Color(theme.sidewalk);
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i), t = terrainInfo(x, z);
@@ -177,6 +246,8 @@ window.buildWorld = function (track, theme, Q) {
       tmp.copy(c1).lerp(c2, rnd());
       if (sand) { tmp.lerp(sand, smooth(theme.shoreZ - 32, theme.shoreZ - 16, z)); if (t.h < -0.7) tmp.lerp(wet, 0.6); }
       if (rockC) tmp.lerp(rockC, smooth(theme.rockAbove, theme.rockAbove + 10, t.h));
+      if (theme.snowAbove != null) tmp.lerp(snowC, smooth(theme.snowAbove, theme.snowAbove + 8, t.h + noise(x * 2, z * 2) * 6));
+      if (rivers.length) { const rv = riverInfo(x, z); if (rv && rv.d < rv.w / 2 + 7) tmp.lerp(bankC, 0.7); } // Ufer: Kies
       if (side) tmp.lerp(side, 1 - smooth(edge + 3, edge + 6, t.dmin));
       colors.push(tmp.r, tmp.g, tmp.b);
     }
@@ -267,11 +338,106 @@ window.buildWorld = function (track, theme, Q) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx); g.computeVertexNormals();
+    let arrowTex = null;
+    if (sf.patch.arrows) { // Turbo-Feld: leuchtende Pfeile
+      const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+      const x = c.getContext('2d'); x.fillStyle = '#ff9800'; x.fillRect(0, 0, 64, 64);
+      x.fillStyle = '#fff59d'; x.beginPath(); x.moveTo(8, 44); x.lineTo(32, 16); x.lineTo(56, 44); x.lineTo(44, 44); x.lineTo(32, 30); x.lineTo(20, 44); x.fill();
+      arrowTex = new THREE.CanvasTexture(c); arrowTex.wrapS = arrowTex.wrapT = THREE.RepeatWrapping;
+      const uv = [];
+      for (let ii = a, k = 0; ii <= b; ii++, k++) { const v = (ii - a) * 5 / 6; uv.push(0, v, 3, v); } // Pfeile zeigen in Fahrtrichtung
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    }
     const m = new THREE.Mesh(g, new THREE.MeshPhongMaterial({
-      color: sf.patch.color, transparent: true, opacity: sf.patch.opacity, shininess: sf.patch.shininess, specular: '#ffffff',
+      map: arrowTex, emissive: arrowTex ? '#ff6d00' : '#000000', emissiveMap: arrowTex,
+      color: arrowTex ? '#ffffff' : sf.patch.color, transparent: true, opacity: sf.patch.opacity, shininess: sf.patch.shininess, specular: '#ffffff',
       depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     m.receiveShadow = true;
     scene.add(m);
+  }
+
+  const dummy = new THREE.Object3D();
+  // ---------- Flüsse: Wasseroberfläche ----------
+  if (rivers.length) {
+    const wmat = new THREE.MeshPhongMaterial({ color: '#2a8fd6', shininess: 100, specular: '#cccccc', transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+    for (const rv of rivers) {
+      // Fluss in kleine Stücke teilen, damit er weich aussieht
+      const pts = [];
+      for (let i = 0; i < rv.pts.length - 1; i++) {
+        const A = rv.pts[i], B = rv.pts[i + 1], n = Math.max(1, Math.round(Math.hypot(B.x - A.x, B.z - A.z) / 8));
+        for (let k = 0; k < n; k++) { const t = k / n; pts.push({ x: A.x + (B.x - A.x) * t, z: A.z + (B.z - A.z) * t, y: A.y + (B.y - A.y) * t }); }
+      }
+      pts.push(rv.pts[rv.pts.length - 1]);
+      const pos = [], idx = [], hw = rv.w / 2 + 3;
+      pts.forEach((p, i) => {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        const nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+        pos.push(p.x - nx * hw, p.y, p.z - nz * hw, p.x + nx * hw, p.y, p.z + nz * hw);
+        if (i < pts.length - 1) { const q = 2 * i; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+      const m = new THREE.Mesh(g, wmat); m.receiveShadow = true;
+      scene.add(m);
+    }
+  }
+
+  // ---------- Tunnel: Röhre mit Lampen und Portalen ----------
+  for (const t of track.tunnels || []) {
+    const a = Math.floor(t.from * N), b = Math.ceil(t.to * N), SEG = 10, rx = edge + 2.5, ry = 8.5;
+    const pos = [], idx = [], lamps = [];
+    let k = 0;
+    for (let ii = a; ii <= b; ii++, k++) {
+      const i = ((ii % N) + N) % N, p = path[i], n = norm[i];
+      for (let s2 = 0; s2 <= SEG; s2++) {
+        const ang = Math.PI * s2 / SEG, c = Math.cos(ang), sn = Math.sin(ang);
+        pos.push(p.x + n.x * c * rx, p.y - 0.4 + sn * ry, p.z + n.z * c * rx);
+      }
+      if (ii < b) for (let s2 = 0; s2 < SEG; s2++) { const q = k * (SEG + 1) + s2; idx.push(q, q + SEG + 1, q + 1, q + 1, q + SEG + 1, q + SEG + 2); }
+      if ((ii - a) % 3 === 0) lamps.push({ x: p.x, y: p.y - 0.6 + ry, z: p.z, ry: -Math.atan2(tang[i].z, tang[i].x) });
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const tube = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: '#3d3935', emissive: '#24201c', side: THREE.DoubleSide }));
+    tube.castShadow = true; tube.receiveShadow = true;
+    scene.add(tube);
+    // Felsdach über der Röhre: schliesst den Einschnitt im Berg von oben
+    {
+      const rp = [], rc = [], ri = [], RW = edge + 24, cols = [new THREE.Color(theme.groundVar), new THREE.Color(theme.rock || '#8f8478')];
+      let kk = 0;
+      for (let ii = a; ii <= b; ii++, kk++) {
+        const i = ((ii % N) + N) % N, p = path[i], n = norm[i];
+        const hl = terrainHeight(p.x - n.x * RW, p.z - n.z * RW), hr = terrainHeight(p.x + n.x * RW, p.z + n.z * RW);
+        const top = Math.max(p.y + ry + 0.6, (hl + hr) / 2);
+        for (const [o, hh] of [[-RW, hl], [-rx * 1.1, Math.max(top, hl * 0.5 + top * 0.5)], [0, top], [rx * 1.1, Math.max(top, hr * 0.5 + top * 0.5)], [RW, hr]]) {
+          rp.push(p.x + n.x * o, hh, p.z + n.z * o);
+          const c = cols[0].clone().lerp(cols[1], clamp((hh - (theme.rockAbove || 60)) / 10, 0, 1));
+          rc.push(c.r, c.g, c.b);
+        }
+        if (ii < b) for (let s2 = 0; s2 < 4; s2++) { const q = kk * 5 + s2; ri.push(q, q + 1, q + 5, q + 1, q + 6, q + 5); }
+      }
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3));
+      rg.setIndex(ri); rg.computeVertexNormals();
+      const roof = new THREE.Mesh(rg, new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, shininess: 0, side: THREE.DoubleSide }));
+      roof.receiveShadow = true; roof.castShadow = true;
+      scene.add(roof);
+    }
+    // Lampen an der Decke
+    const lg = new THREE.BoxGeometry(2.4, 0.15, 0.5), lm = new THREE.MeshBasicMaterial({ color: '#ffe8a8' });
+    const lampMesh = new THREE.InstancedMesh(lg, lm, lamps.length);
+    lamps.forEach((l, j) => { dummy.position.set(l.x, l.y, l.z); dummy.rotation.set(0, l.ry, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); lampMesh.setMatrixAt(j, dummy.matrix); });
+    lampMesh.frustumCulled = false;
+    scene.add(lampMesh);
+    // Portale aus Stein an beiden Enden
+    const stone = new THREE.MeshPhongMaterial({ color: '#8d8478', flatShading: true });
+    for (const ii of [a, b]) {
+      const i = ((ii % N) + N) % N, p = path[i], n = norm[i], yaw = -Math.atan2(n.z, n.x);
+      const arch = new THREE.Mesh(new THREE.TorusGeometry((rx + ry) / 2 + 0.6, 1.4, 6, 14, Math.PI), stone);
+      arch.scale.set(rx / ((rx + ry) / 2), ry / ((rx + ry) / 2), 1);
+      arch.position.set(p.x, p.y - 0.4, p.z); arch.rotation.y = yaw;
+      arch.castShadow = true; scene.add(arch);
+    }
   }
 
   // ---------- 6. Start/Ziel ----------
@@ -310,7 +476,6 @@ window.buildWorld = function (track, theme, Q) {
   }
 
   // ---------- 7. Deko verteilen ----------
-  const dummy = new THREE.Object3D();
   function addInstances(parts, items) {
     if (!items.length) return;
     for (const part of parts) {
@@ -358,12 +523,19 @@ window.buildWorld = function (track, theme, Q) {
       addInstances([{ geo: gg, mat: new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), cast: false }], glows);
       continue;
     }
-    const count = Math.round(def.count * Q.propScale * areaScale);
+    const big = totalLen > 2500; // lange Strecke: Deko vor allem entlang der Strasse
+    const count = Math.round(def.count * Q.propScale * (big ? clamp(totalLen / 1400, 1, 4.5) : areaScale));
     const minD = edge + (def.minDist != null ? def.minDist : 6);
     const maxD = def.maxDist != null ? edge + def.maxDist : Infinity;
     const items = [];
     for (let tries = 0; items.length < count && tries < count * 50; tries++) {
-      const x = (rnd() * 2 - 1) * (HX - 15), z = (rnd() * 2 - 1) * (HZ - 15);
+      let x, z;
+      if (big && rnd() < 0.8) { // in der Nähe einer zufälligen Stelle der Strecke
+        const p = path[Math.floor(rnd() * N)], a = rnd() * Math.PI * 2, d = edge + 6 + Math.pow(rnd(), 1.5) * 150;
+        x = p.x + Math.cos(a) * d; z = p.z + Math.sin(a) * d;
+        if (Math.abs(x) > HX - 15 || Math.abs(z) > HZ - 15) continue;
+      } else { x = (rnd() * 2 - 1) * (HX - 15); z = (rnd() * 2 - 1) * (HZ - 15); }
+      if (rivers.length) { const rv = riverInfo(x, z); if (rv && rv.d < rv.w / 2 + 4) continue; }
       if (theme.shoreZ != null) {
         if (def.nearShore) { if (z < theme.shoreZ - 24 || z > theme.shoreZ - 6) continue; }
         else if (z > theme.shoreZ - 8) continue;
@@ -452,8 +624,12 @@ window.buildWorld = function (track, theme, Q) {
 
   // Wird jedes Bild aufgerufen
   let time = 0;
-  function update(dt, cam, carPos) {
+  let dark = 0;
+  function update(dt, cam, carPos, inTun) {
     time += dt;
+    dark += ((inTun ? 1 : 0) - dark) * Math.min(1, dt * 3); // im Tunnel sanft dunkler werden
+    hemi.intensity = theme.ambient * (1 - 0.6 * dark);
+    sun.intensity = theme.sunIntensity * (1 - 0.85 * dark);
     sky.position.copy(cam.position);
     if (stars) stars.position.copy(cam.position);
     sunSprite.position.copy(cam.position).addScaledVector(sunDir, 900);
@@ -476,5 +652,5 @@ window.buildWorld = function (track, theme, Q) {
   const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
   for (const p of path) { bounds.minX = Math.min(bounds.minX, p.x); bounds.maxX = Math.max(bounds.maxX, p.x); bounds.minZ = Math.min(bounds.minZ, p.z); bounds.maxZ = Math.max(bounds.maxZ, p.z); }
 
-  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, collide, update, bounds, limits: { x: HX - 12, z: HZ - 12 }, size: Math.max(HX, HZ), theme, track };
+  return { scene, path, N, W, edge, CURB, tang, norm, roadInfo, terrainHeight, surfaceHeight, waterAt, inTunnel, collide, update, bounds, limits: { x: HX - 12, z: HZ - 12 }, size: Math.max(HX, HZ), theme, track };
 };

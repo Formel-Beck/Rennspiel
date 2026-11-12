@@ -21,6 +21,7 @@
     shadows: true,
     shadowMap: MOBILE ? 1024 : 2048,
     terrainRes: MOBILE ? 4.8 : 3.8, // Meter pro Gelände-Kästchen
+    terrainMaxVerts: MOBILE ? 45000 : 75000, // höchstens so viele Gelände-Punkte
     propScale: MOBILE ? 0.7 : 1,
     snowCount: MOBILE ? 900 : 1800,
     aniso: Math.min(8, renderer.capabilities.getMaxAnisotropy())
@@ -51,7 +52,7 @@
   // Einstellbare Werte (der Entwicklermodus ändert sie)
   const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
   const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
-  const RACE = { laps: 0 }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
+  const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1 }, DEBUG = { fps: false, info: false };
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
@@ -173,6 +174,8 @@
     if (key === 'c') switchCam();
     if (key === 'p' || key === 'escape') togglePause();
     if (key === 'h') honk();
+    if ((key === ' ' || key === 'e') && phase === 'race') { e.preventDefault(); Items.useItem(car); }
+    if (key === 'q' && phase === 'race') Items.useSpecial(car);
   });
   addEventListener('keyup', e => { const k = keyMap[e.key.toLowerCase()]; if (k) keys[k] = false; });
   document.querySelectorAll('.btn').forEach(btn => {
@@ -290,7 +293,9 @@
   let pausedFrom = null;
   let countdown = 3, gameTime = 0, raceStart = 0, lapStart = 0, lap = 1, lapTimes = [];
   let lastIndex = 0, halfway = false, finishTimer = 0, distSinceFx = 0;
-  let menuAngle = 0, myFinish = null;
+  let menuAngle = 0, myFinish = null, padBoost = 0;
+  const NO_MODS = { boost: 0, spin: 0, gripMin: 0, rocket: false, ghost: false, noTrees: false, offroadFree: false, star: false, ram: false };
+  const itemMods = () => Items.enabled && (phase === 'race') ? Items.mods() : NO_MODS;
 
   // slot = Startplatz (0 = vorne links, 1 = vorne rechts, 2 = zweite Reihe links …)
   function placeCarAtStart(slot) {
@@ -307,7 +312,14 @@
   function startRace(slot) {
     resetKeys();
     placeCarAtStart(typeof slot === 'number' ? slot : 0);
-    myFinish = null;
+    myFinish = null; padBoost = 0;
+    Items.setup({
+      world, track, char, enabled: !!track.items || RACE.itemsAll,
+      getAudio: () => (audio && !muted ? audio : null),
+      sendEvent: e => MP.sendEvent(e),
+      getPlace: () => { if (!MP.racing) return null; const s = standings(); return { place: s.findIndex(e => e.me) + 1, total: s.length }; },
+      spawnFx
+    });
     phase = 'countdown'; countdown = 3;
     lap = 1; lapTimes = []; halfway = false; finishTimer = 0;
     clearParticles();
@@ -366,8 +378,20 @@
   function stepCar(dt, input) {
     const r = world.roadInfo(car.x, car.z);
     const onRoad = r.dist < world.edge + world.CURB;
-    const inWater = !onRoad && theme.shoreZ != null && world.terrainHeight(car.x, car.z) < -0.75;
+    const wl = onRoad ? null : world.waterAt(car.x, car.z);
+    const inWater = wl != null && world.terrainHeight(car.x, car.z) < wl - 0.15;
     const sf = surface = surfaceAt(r, onRoad, inWater);
+    const M = itemMods(); // Effekte von Items und Spezial-Boosts
+    if (sf.boost) padBoost = 1.1; // über ein Turbo-Feld gefahren
+
+    // Rakete: fährt von selbst der Strecke entlang
+    if (M.rocket) {
+      const tgt = world.path[(r.index + 10) % world.N];
+      let a = Math.atan2(tgt.z - car.z, tgt.x - car.x) - car.angle; a = Math.atan2(Math.sin(a), Math.cos(a));
+      input = { up: true, down: false, left: a < -0.03, right: a > 0.03 };
+    }
+    // Schleudern: Lenken und Gas gehen nicht, das Auto dreht sich
+    if (M.spin) { input = { up: false, down: false, left: false, right: false }; car.angle += M.spin * 8.5 * dt; }
 
     const fx = Math.cos(car.angle), fz = Math.sin(car.angle); // nach vorne
     const sx = -fz, sz = fx;                                    // zur Seite
@@ -376,9 +400,15 @@
 
     // Steigung: bergauf langsamer, bergab schneller
     const slope = Math.sin(car.pitch);
-    const off = sf.topAbs ? perf.offroad : 1; // Gelände-Talent von Fahrzeug und Fahrer
-    const top = (sf.topAbs ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * sf.top) * clamp(1 - 2 * slope, 0.6, 1.3);
-    const grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll; // rutschiger Boden: Fahrzeug-Wert 'loose'
+    const offFree = M.offroadFree && sf.topAbs;                // Turbo/Stern/Spuk: Wiese bremst nicht
+    const off = sf.topAbs && !offFree ? perf.offroad : 1;      // Gelände-Talent von Fahrzeug und Fahrer
+    const boostAmt = Math.max(M.boost, padBoost > 0 ? 0.45 : 0, M.rocket ? 0.55 : 0);
+    let top = (sf.topAbs && !offFree ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * (sf.top || 1)) * clamp(1 - 2 * slope, 0.6, 1.3);
+    top *= 1 + boostAmt;
+    let grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll; // rutschiger Boden: Fahrzeug-Wert 'loose'
+    if (M.gripMin) grip = Math.max(grip, M.gripMin);
+    if (boostAmt > 0 && vF < top) vF += perf.accel * 1.6 * dt; // Turbo schiebt kräftig an
+    if (M.spin) vF *= Math.exp(-1.6 * dt);
 
     const traction = clamp(grip * 1.6, 0.3, 1); // wenig Grip = Räder drehen durch, man kommt schlechter vom Fleck
     if (input.up) { if (vF < top) vF += perf.accel * Math.min(1, sf.accel * off) * traction * dt; }
@@ -402,6 +432,17 @@
 
     car.x += car.vx * dt; car.z += car.vz * dt;
     car.speed = vF; car.slip = vS;
+    // Tunnel: Wände links und rechts
+    if (world.inTunnel[r.index]) {
+      const p = world.path[r.index], n = world.norm[r.index];
+      const side = (car.x - p.x) * n.x + (car.z - p.z) * n.z, lim = world.edge + 0.6;
+      if (Math.abs(side) > lim) {
+        const sg = Math.sign(side), over = Math.abs(side) - lim;
+        car.x -= n.x * sg * over; car.z -= n.z * sg * over;
+        const vn = car.vx * n.x * sg + car.vz * n.z * sg;
+        if (vn > 0) { car.vx -= 1.4 * vn * n.x * sg; car.vz -= 1.4 * vn * n.z * sg; if (vn > 6) { crashSound(vn); shake = Math.min(0.5, vn / 30); } }
+      }
+    }
     const LX = world.limits.x, LZ = world.limits.z; // unsichtbare Wand am Weltrand
     if (Math.abs(car.x) > LX || Math.abs(car.z) > LZ) {
       car.x = clamp(car.x, -LX, LX); car.z = clamp(car.z, -LZ, LZ); car.vx *= -0.3; car.vz *= -0.3;
@@ -410,7 +451,7 @@
     // Zusammenstösse mit Bäumen, Häusern, Felsen … (zwei Kreise: vorne und hinten am Auto)
     let bump = 0, bx = 0, bz = 0;
     const cr = carModel.collide;
-    for (const o of PHYS.collisions ? [cr.off, -cr.off] : []) {
+    for (const o of PHYS.collisions && !M.noTrees ? [cr.off, -cr.off] : []) {
       const push = world.collide(car.x + fx * o, car.z + fz * o, cr.r);
       if (!push) continue;
       car.x += push.x; car.z += push.z;
@@ -420,17 +461,19 @@
       car.vx *= 0.97; car.vz *= 0.97;
     }
     // Rempeln mit den Autos der anderen Spieler
-    if (MP.racing) for (const rc of remoteCars.values()) {
-      if (!rc.visible) continue;
+    if (MP.racing && !M.ghost) for (const rc of remoteCars.values()) {
+      if (!rc.visible || (rc.f & 2)) continue; // Geist/Schatten/Rakete: durchfahren
       const rr = rc.model.collide, rfx = Math.cos(rc.a), rfz = Math.sin(rc.a);
       for (const o of [cr.off, -cr.off]) for (const q of [rr.off, -rr.off]) {
         const dx = car.x + fx * o - (rc.x + rfx * q), dz = car.z + fz * o - (rc.z + rfz * q);
         const d = Math.hypot(dx, dz), min = cr.r + rr.r;
         if (d >= min || d < 1e-4) continue;
         const nx = dx / d, nz = dz / d, push = (min - d) * 0.5; // jeder schiebt sich selbst die Hälfte weg
-        car.x += nx * push; car.z += nz * push;
+        const heavy = M.star || M.ram;                    // mit Stern/Rammbock wird man selbst kaum geschoben
+        car.x += nx * push * (heavy ? 0.2 : 1); car.z += nz * push * (heavy ? 0.2 : 1);
+        if ((rc.f & 1 || rc.f & 4) && !heavy && Items.spinOut(1.0)) { car.vx += nx * 14; car.vz += nz * 14; } // vom Stern/Rammbock weggeschleudert
         const vn = (car.vx - rc.vx) * nx + (car.vz - rc.vz) * nz;
-        if (vn < 0) { car.vx -= 0.75 * vn * nx; car.vz -= 0.75 * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x - nx * cr.r; bz = car.z - nz * cr.r; } }
+        if (vn < 0) { const k = heavy ? 0.15 : 0.75; car.vx -= k * vn * nx; car.vz -= k * vn * nz; if (-vn > bump) { bump = -vn; bx = car.x - nx * cr.r; bz = car.z - nz * cr.r; } }
       }
     }
     if (bump > 3) {
@@ -454,6 +497,9 @@
 
     const step = vF * dt;
     for (const w of carModel.wheels) w.rotation.z -= step / carModel.wheelR;
+
+    // Turbo: Flammen aus dem Auspuff
+    if (boostAmt > 0 && Math.random() < 0.6) spawnParticle(car.x - dx * (cr.off + 1.2), car.y + 0.6, car.z - dz * (cr.off + 1.2), Math.random() < 0.5 ? '#ff9800' : '#ffd54a', 0.7, 0.5);
 
     // Effekte: Rauch beim Rutschen, Staub im Gelände, Spritzer im Wasser
     distSinceFx += Math.hypot(car.vx, car.vz) * dt;
@@ -499,6 +545,8 @@
 
     let input = keys;
     if (phase === 'finished') input = { up: false, down: car.speed > 3, left: false, right: false };
+    if (padBoost > 0) padBoost -= dt;
+    if (phase === 'race') Items.update(dt, car);
     const r = stepCar(dt, input);
 
     if (phase === 'race') {
@@ -694,6 +742,8 @@
     $('charTitle').textContent = char.title;
     $('charInfo').textContent = char.info;
     $('charStats').innerHTML = bonusChips(char.stats);
+    const sp = Items.specialInfo(char);
+    $('charSpecial').innerHTML = `<b>${sp.icon} Spezial: ${sp.name}</b> – ${sp.info} <small>(auf Item-Strecken)</small>`;
     $('sumChar').textContent = char.name;
   }
 
@@ -743,7 +793,7 @@
       const card = document.createElement('button');
       card.className = 'card';
       card.style.background = `linear-gradient(165deg, ${th.skyTop} 0%, ${th.skyBottom} 52%, ${th.ground} 53%, ${th.groundVar} 100%)`;
-      card.innerHTML = `<div class="emoji">${th.emoji}<span class="diff ${d[1]}">${d[0]}</span></div><div class="cinfo"><div class="cname">${t.name}</div>
+      card.innerHTML = `<div class="emoji">${th.emoji}<span class="diff ${d[1]}">${d[0]}</span>${t.items ? '<span class="diff itm">🎁 Items</span>' : ''}</div><div class="cinfo"><div class="cname">${t.name}</div>
         <div class="ctheme">${th.name} · ${t.laps} Runden</div><div class="cdesc">${t.info}</div>
         <div class="crec">🏆 ${rec.total != null ? fmt(rec.total) : 'noch keine Zeit'}</div></div>`;
       card.addEventListener('click', () => { ensureAudio(); chooseTrack(t); });
@@ -815,6 +865,8 @@
   $('pauseBtn').addEventListener('click', togglePause);
   $('camBtn').addEventListener('click', switchCam);
   $('hornBtn').addEventListener('click', honk);
+  for (const [id, fn] of [['btnItem', () => Items.useItem(car)], ['btnSpecial', () => Items.useSpecial(car)], ['itemSlot', () => Items.useItem(car)], ['specBar', () => Items.useSpecial(car)]])
+    $(id).addEventListener('pointerdown', e => { e.preventDefault(); if (phase === 'race') fn(); });
   $('resumeBtn').addEventListener('click', togglePause);
   $('restartBtn').addEventListener('click', startRace);
   $('menuBtn').addEventListener('click', () => { goToMenu(); if (MP.active) showStep(2); });
@@ -839,7 +891,15 @@
       placeCamera(camModes[camMode].fixed ? 1 : 1 - Math.pow(0.004, dt));
     }
     updateRemotes(dt);
-    world.update(dt, camera, carModel.group.position);
+    updateFx(dt);
+    if (phase !== 'menu') {
+      const f = (Items.enabled && phase === 'race' ? Items.flags() : 0) | (padBoost > 0 ? 8 : 0);
+      applyLook(carModel, f & 7, dt, null);
+      const wantFov = (camModes[0].fov || 65) + (f & 8 ? 10 : 0); // Turbo: Sichtfeld weiter
+      if (Math.abs(camera.fov - wantFov) > 0.1) { camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 5); camera.updateProjectionMatrix(); }
+    }
+    const ri = phase !== 'menu' ? world.roadInfo(car.x, car.z) : null;
+    world.update(dt, camera, carModel.group.position, ri && world.inTunnel[ri.index] && ri.dist < world.edge + 3);
     renderer.render(world.scene, camera);
     if (phase !== 'menu') { updateHud(); drawMinimap(); }
     updateEngine(dt);
@@ -880,6 +940,63 @@
         `<br>Position ${car.x.toFixed(0)} / ${car.z.toFixed(0)}`;
     }
     $('debug').innerHTML = h;
+  }
+
+  // ---------- Aussehen bei Items: Stern-Glanz, durchsichtig, rote Aura, Flammen ----------
+  let auraTex = null;
+  function getAuraTex() {
+    if (auraTex) return auraTex;
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 10, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,0.0)'); gr.addColorStop(0.55, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return (auraTex = new THREE.CanvasTexture(c));
+  }
+  function applyLook(model, f, dt, s) {
+    const ud = model.group.userData;
+    if (!ud.aura) {
+      ud.aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: getAuraTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      ud.aura.scale.setScalar(6.5); ud.aura.position.y = 1.2; ud.aura.visible = false;
+      model.group.add(ud.aura);
+    }
+    const t = performance.now() / 1000;
+    ud.aura.visible = !!(f & 1 || f & 4);
+    if (f & 1) ud.aura.material.color.setHSL((t * 1.5) % 1, 1, 0.6);   // Stern: Regenbogen
+    else if (f & 4) ud.aura.material.color.set('#ff3d00');           // Rammbock: rot
+    const ghost = !!(f & 2);
+    if (ghost !== !!ud.ghost) {
+      ud.ghost = ghost;
+      model.group.traverse(o => {
+        if (!o.isMesh || !o.material || o === ud.aura) return;
+        for (const m of [].concat(o.material)) {
+          if (ghost) { if (m.userData.op == null) m.userData.op = [m.transparent, m.opacity]; m.transparent = true; m.opacity = 0.3; }
+          else if (m.userData.op) { [m.transparent, m.opacity] = m.userData.op; m.userData.op = null; }
+          m.needsUpdate = true;
+        }
+      });
+    }
+    if (s && f & 8 && Math.random() < 0.5) { // Turbo-Flammen der anderen
+      const back = model.collide.off + 1.2;
+      spawnParticle(s.x - Math.cos(s.a) * back, (s.y || 0) + 0.6, s.z - Math.sin(s.a) * back, Math.random() < 0.5 ? '#ff9800' : '#ffd54a', 0.7, 0.5);
+    }
+  }
+  // Effekte für Items: Konfetti bei ?-Box, Ring bei der Schrei-Welle
+  const rings = [];
+  function spawnFx(kind, at) {
+    const y = (at.y != null ? at.y : car.y) + 0.8;
+    if (kind === 'box') { for (let k = 0; k < 8; k++) spawnParticle(at.x, y, at.z, ['#ff4fa3', '#ffe14d', '#4fc3f7', '#69f0ae'][k % 4], 0.6, 2 + Math.random() * 2); }
+    if (kind === 'shock') {
+      const m = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.6, 32), new THREE.MeshBasicMaterial({ color: '#e1bee7', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2; m.position.set(at.x, y - 0.5, at.z);
+      world.scene.add(m); rings.push({ m, t: 0 });
+    }
+  }
+  function updateFx(dt) {
+    for (let k = rings.length - 1; k >= 0; k--) {
+      const r = rings[k]; r.t += dt;
+      r.m.scale.setScalar(1 + r.t * 25); r.m.material.opacity = Math.max(0, 0.8 - r.t * 1.4);
+      if (r.t > 0.6) { if (r.m.parent) r.m.parent.remove(r.m); r.m.geometry.dispose(); rings.splice(k, 1); }
+    }
   }
 
   // ---------- Mehrspieler: andere Autos ----------
@@ -933,7 +1050,7 @@
     if (k === 0) return Object.assign({ age: 0 }, buf[0].s);
     const A = buf[k - 1], B = buf[k], f = (t - A.time) / (B.time - A.time), a = A.s, b = B.s;
     const mix = key => a[key] + (b[key] - a[key]) * f;
-    return { x: mix('x'), z: mix('z'), y: mix('y'), vx: mix('vx'), vz: mix('vz'), sp: mix('sp'), st: mix('st'), p: mix('p'), r: mix('r'), a: lerpAngle(a.a, b.a, f), pr: b.pr, age: 0 };
+    return { x: mix('x'), z: mix('z'), y: mix('y'), vx: mix('vx'), vz: mix('vz'), sp: mix('sp'), st: mix('st'), p: mix('p'), r: mix('r'), a: lerpAngle(a.a, b.a, f), pr: b.pr, f: b.f || 0, age: 0 };
   }
   function updateRemotes(dt) {
     if (!MP.racing || phase === 'menu') { if (remoteCars.size) clearRemotes(); return; }
@@ -946,7 +1063,8 @@
       rc.visible = !!s && s.age < 3000;
       rc.model.group.visible = rc.visible;
       if (!rc.visible) continue;
-      Object.assign(rc, { x: s.x, z: s.z, y: s.y, a: s.a, vx: s.vx, vz: s.vz });
+      Object.assign(rc, { x: s.x, z: s.z, y: s.y, a: s.a, vx: s.vx, vz: s.vz, f: s.f || 0 });
+      applyLook(rc.model, rc.f, dt, s);
       rc.model.group.position.set(s.x, s.y, s.z);
       rc.model.group.rotation.set(s.r || 0, -s.a, s.p || 0, 'YZX');
       for (const fp of rc.model.frontPivots) fp.rotation.y = -(s.st || 0);
@@ -958,7 +1076,8 @@
   MP.getInfo = () => ({ name: MP.myName() || char.name, char: char.id, car: carCfg.id });
   MP.getState = () => (phase === 'race' || phase === 'countdown' || phase === 'finished' || phase === 'paused') ? {
     x: r2(car.x), z: r2(car.z), y: r2(car.y), a: r2(car.angle), p: r2(car.pitch), r: r2(car.roll),
-    vx: r2(car.vx), vz: r2(car.vz), sp: r2(car.speed), st: r2(car.steerVis), pr: r2(myProgress())
+    vx: r2(car.vx), vz: r2(car.vz), sp: r2(car.speed), st: r2(car.steerVis), pr: r2(myProgress()),
+    f: (Items.enabled ? Items.flags() : 0) | (padBoost > 0 ? 8 : 0)
   } : null;
   MP.onStart = (trackId, slot, laps) => {
     const t = TRACKS.find(x => x.id === trackId) || TRACKS[0];
@@ -981,6 +1100,7 @@
     clearRemotes();
     if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); }
   };
+  MP.onEvent = (id, e) => { if (phase === 'race' || phase === 'countdown') Items.remoteEvent(id, e, car); };
   MP.onLobby = () => { if (phase === 'menu') updateModeUI(); };
   MP.onRaceEnd = () => { if (phase !== 'menu') { goToMenu(); setMode(true); showStep(2); } }; // Gastgeber ist zurück in der Lobby
 

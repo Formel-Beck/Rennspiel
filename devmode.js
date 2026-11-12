@@ -35,7 +35,8 @@ window.DevMode = (() => {
         ['cam.up', 'Höhe', 1, 15, 0.1],
         ['cam.fov', 'Sichtfeld', 40, 100, 1, v => v + '°']] },
       { title: '🏁 Rennen', items: [
-        ['race.laps', 'Runden (0 = wie Strecke)', 0, 10, 1]] },
+        ['race.laps', 'Runden (0 = wie Strecke)', 0, 10, 1],
+        ['race.itemsAll', 'Items auf allen Strecken', 'bool']] },
       { title: '🔊 Sound', items: [
         ['sound.engineVol', 'Motor-Lautstärke', 0, 2, 0.05, times]] },
       { title: '🐞 Anzeige', items: [

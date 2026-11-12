@@ -41,7 +41,7 @@ window.MP = (() => {
     finishes: new Map(),  // id -> Zeit im Ziel
     trackId: null, laps: 0,
     // vom Spiel gesetzt:
-    getInfo: null, getState: null, onStart: null, onHonk: null, onLeave: null, onLobby: null, onRaceEnd: null
+    getInfo: null, getState: null, onStart: null, onHonk: null, onLeave: null, onLobby: null, onRaceEnd: null, onEvent: null
   };
 
   // Für Tests lässt sich ein eigener Server angeben: ?mqtt=ws://127.0.0.1:8888
@@ -169,6 +169,9 @@ window.MP = (() => {
       api.onHonk && api.onHonk(id);
     } else if (d.t === 'bye') {
       dropPlayer(id);
+    } else if (d.t === 'ev') {
+      publish('down', { t: 'ev', id, e: d.e });
+      api.onEvent && api.onEvent(id, d.e);
     }
   }
   function dropPlayer(id) {
@@ -263,6 +266,8 @@ window.MP = (() => {
       api.finishes.set(d.id, d.time);
     } else if (d.t === 'honk') {
       if (d.id !== api.myId) api.onHonk && api.onHonk(d.id);
+    } else if (d.t === 'ev') {
+      if (d.id !== api.myId) api.onEvent && api.onEvent(d.id, d.e);
     } else if (d.t === 'busy') {
       setStatus('Das Rennen läuft schon – du bist beim nächsten dabei.');
     } else if (d.t === 'who') {
@@ -316,6 +321,12 @@ window.MP = (() => {
     api.finishes.set(api.myId, time);
     if (api.isHost) publish('down', { t: 'fin', id: api.myId, time });
     else publish('up/' + api.myId, { t: 'fin', time });
+  }
+  // Item-Ereignis (Pfütze, Schrei-Welle …) an alle schicken
+  function sendEvent(e) {
+    if (!api.active || !api.racing) return;
+    if (api.isHost) publish('down', { t: 'ev', id: api.myId, e });
+    else publish('up/' + api.myId, { t: 'ev', e });
   }
   function sendHonk() {
     if (!api.active) return;
@@ -429,5 +440,5 @@ window.MP = (() => {
     return n;
   }
 
-  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, updateInfo, render, myName });
+  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, sendEvent, updateInfo, render, myName });
 })();

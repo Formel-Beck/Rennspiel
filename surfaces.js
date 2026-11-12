@@ -29,6 +29,8 @@ window.SURFACES = {
                patch: { color: '#16233d', opacity: 0.6, shininess: 200 } },
   sanddrift: { name: 'Sandverwehung!', grip: 0.55, accel: 0.7, top: 0.75, drag: 25, fx: '#e3b878', dusty: true, warn: true,
                patch: { color: '#e6c084', opacity: 0.95, shininess: 2 } },
+  boostpad:  { name: 'Turbo!',        grip: 1.0,  accel: 1.0,  top: 1.0,  drag: 4,  fx: '#ffd54a', boost: 1.2, warn: false,
+               patch: { color: '#ff9800', opacity: 0.9, shininess: 80, arrows: true } },
   mud:       { name: 'Schlamm!',      grip: 0.3,  accel: 0.9,  top: 0.95, drag: 4,  fx: '#5a3d22', dusty: true, warn: true,
                patch: { color: '#5b3f24', opacity: 0.9, shininess: 30 } }
 };

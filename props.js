@@ -148,6 +148,14 @@ window.Props = (() => {
       { geo: merge([{ geo: K(0.1, 0.5, 6), rz: -Math.PI / 2, x: 0.6, y: 3.25 }]), mat: M('#ff8f00') },
       { geo: merge([{ geo: C(0.35, 0.35, 0.5, 10), y: 3.85 }, { geo: C(0.55, 0.55, 0.06, 10), y: 3.6 }]), mat: M('#222222') }
     ],
+    lolli: () => {
+      const cols = ['#ff4fa3', '#ffe14d', '#4fc3f7', '#ffffff'];
+      const rings = cols.map((c, i) => ({ geo: merge([{ geo: new THREE.TorusGeometry(1.6 - i * 0.42, 0.22, 6, 18), x: 0, y: 6.2, rx: 0 }]), mat: M(c) }));
+      return [
+        { geo: merge([{ geo: C(0.15, 0.15, 6, 6), y: 3 }]), mat: M('#ffffff') },
+        { geo: merge([{ geo: new THREE.CylinderGeometry(1.9, 1.9, 0.3, 20), y: 6.2, rx: Math.PI / 2 }]), mat: M('#ff80c0') }
+      ].concat(rings.map(r => (r.geo.translate(0, 0, 0.17), r)));
+    },
     lamp: () => [
       { geo: merge([{ geo: C(0.12, 0.18, 7, 6), y: 3.5 }, { geo: B(2.2, 0.12, 0.12), x: 1.1, y: 7 }]), mat: M('#556070') },
       { geo: merge([{ geo: B(0.6, 0.2, 0.4), x: 2.1, y: 6.9 }]), mat: Basic('#ffe9a8'), cast: false }

@@ -13,6 +13,11 @@
 //   - Zwei Strassenteile müssen mind. Strassenbreite + 10 m auseinander sein
 //   - laps = Anzahl Runden
 //   - difficulty = Schwierigkeit: 1 = Leicht, 2 = Mittel, 3 = Schwer
+//   - items: true = ?-Boxen und Spezial-Boosts (itemRows = wo die Boxen stehen)
+//   - tunnels: Abschnitte im Tunnel (from/to wie bei patches)
+//   - mountains: Berge [x, z, Radius, Höhe] – neben der Strasse entsteht eine Schlucht,
+//                über einem Tunnel bleibt der Berg stehen
+//   - rivers: Flüsse mit Punkten [x, z, Wasserhöhe] und Breite (width)
 //   - theme: forest, city, desert, mountains, beach oder snow
 //   - patches: besondere Stellen auf der Strasse, z.B. Eis.
 //     from/to = wo auf der Runde (0 = Start, 0.5 = halbe Runde, 1 = Ziel)
@@ -72,5 +77,30 @@ window.TRACKS = [
     points: [[-110, -35, 6], [-30, -35, 7], [50, -35, 8], [130, -35, 9], [185, -75, 10], [240, -40, 9], [245, 30, 8],
              [195, 75, 6], [130, 40, 5], [50, 40, 4], [-30, 40, 3], [-110, 40, 2], [-170, 80, 1], [-235, 35, 0],
              [-235, -40, 2], [-180, -80, 4]]
+  },
+  {
+    id: 'regenbogen', name: 'Abenteuer-Rallye', theme: 'rainbow', width: 28, laps: 3, difficulty: 2,
+    info: '6 km Abenteuer: Flüsse, Berge, Schlucht und zwei Tunnel – mit ?-Boxen und Spezial-Boosts!',
+    items: true,                                       // ?-Boxen und Spezial-Boosts auf dieser Strecke
+    itemRows: [0.04, 0.13, 0.22, 0.31, 0.47, 0.55, 0.64, 0.72, 0.84, 0.93],
+    tunnels: [{ from: 0.364, to: 0.427 }, { from: 0.755, to: 0.783 }],
+    // Berge: [x, z, Radius, Höhe]
+    mountains: [[640, -340, 230, 120], [250, -645, 170, 120], [0, -665, 180, 145], [-250, -690, 170, 110],
+                [150, -355, 150, 80], [-100, -365, 160, 95], [-330, -385, 130, 70], [-450, -45, 120, 55],
+                [-900, -700, 260, 160], [950, -650, 260, 170], [980, 250, 240, 120], [-960, 180, 200, 110],
+                [300, -60, 200, 70]],
+    // Flüsse: Punkte [x, z, Wasserhöhe]
+    rivers: [{ width: 32, points: [[-1000, 600, 1.5], [-820, 585, 1.3], [-700, 575, 1.2], [-560, 600, 1.1], [-420, 570, 1], [-280, 600, 0.9], [-140, 567, 0.8], [0, 600, 0.7], [140, 570, 0.6], [280, 600, 0.5], [420, 567, 0.4], [560, 535, 0.3], [700, 560, 0.2], [1000, 600, 0]] },
+             { width: 20, points: [[-560, -760, 16], [-610, -650, 14], [-700, -570, 12], [-830, -410, 10], [-858, -260, 8], [-852, -100, 6], [-900, 100, 4], [-930, 300, 2], [-960, 500, 1], [-1000, 610, 1]] }],
+    patches: [{ surface: 'boostpad', from: 0.02, to: 0.028 }, { surface: 'boostpad', from: 0.175, to: 0.182 },
+              { surface: 'boostpad', from: 0.5, to: 0.507 }, { surface: 'boostpad', from: 0.8, to: 0.807 },
+              { surface: 'mud', from: 0.61, to: 0.625 }],
+    points: [[-700, 520, 4], [-560, 545, 4], [-420, 515, 5], [-280, 545, 5], [-140, 512, 6], [0, 545, 6], [140, 515, 7],
+             [280, 545, 8], [420, 512, 9], [540, 480, 11], [630, 420, 16], [700, 340, 22], [650, 260, 28], [720, 180, 34],
+             [660, 100, 40], [730, 20, 46], [700, -70, 52], [760, -150, 57], [740, -250, 61], [680, -330, 63], [590, -390, 63],
+             [490, -430, 62], [380, -470, 57], [260, -520, 51], [140, -480, 45], [20, -540, 39], [-110, -490, 33], [-240, -550, 28],
+             [-370, -500, 24], [-500, -560, 20], [-630, -500, 17], [-740, -390, 14], [-790, -260, 12], [-780, -130, 11], [-700, -30, 14],
+             [-600, 20, 18], [-500, -20, 22], [-400, -60, 24], [-300, -30, 22], [-200, -80, 20], [-90, -20, 18], [-20, 80, 15],
+             [-90, 180, 12], [-220, 240, 10], [-370, 260, 8], [-520, 320, 6], [-640, 410, 5]]
   }
 ];
