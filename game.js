@@ -57,6 +57,8 @@
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
+  // Motor-Einstellungen: auf schnellen Strecken (trackSpeed > 1) mit 5 langen Gängen
+  function engineOpts() { return Object.assign({}, carCfg.sound, { long: trackSpeed > 1 }); }
   let perf = {}, trackSpeed = 1; // trackSpeed: lange Strecken sind schneller
   function computePerf() {
     const st = PHYS.ignoreStats ? { top: 1, accel: 1, handling: 1, grip: 1, offroad: 1 } : char.stats;
@@ -81,7 +83,7 @@
     try { localStorage.setItem('rennspiel-car', v.id); } catch (e) {}
     rebuildCar();
     MP.updateInfo();
-    if (audio) { audio.engine.stop(); audio.engine = EngineSound(audio.ctx, audio.ctx.destination, carCfg.sound); }
+    if (audio) { audio.engine.stop(); audio.engine = EngineSound(audio.ctx, audio.ctx.destination, engineOpts()); }
   }
   function rebuildCar() {
     const parent = carModel.group.parent;
@@ -229,7 +231,7 @@
     try {
       if (audio) { audio.ctx.resume(); return; }
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      audio = { ctx, engine: EngineSound(ctx, ctx.destination, carCfg.sound) };
+      audio = { ctx, engine: EngineSound(ctx, ctx.destination, engineOpts()) };
     } catch (e) { audio = null; }
   }
   function beep(freq, dur) {

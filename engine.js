@@ -57,7 +57,16 @@ window.EngineSound = function (ctx, out, opts) {
   // mit grossem Drehzahlbereich, sonst würde der Motor ständig schalten.
   //   lo/hi = Tempo-Bereich des Gangs (Anteil vom Höchsttempo)
   //   up    = ab hier wird hochgeschaltet, down = darunter runtergeschaltet
-  const GEARS = [
+  const GEARS = opts.long ? [
+    // Lange, schnelle Strecken (Abenteuer-Rallye): 5 Gänge, der letzte ist lang.
+    // Bei normaler Höchstgeschwindigkeit dreht der Motor hoch, aber nicht in den
+    // Begrenzer – der greift nur, wenn ein Boost über das Höchsttempo schiebt.
+    { lo: 0.0,  hi: 0.26, up: 0.23, down: -1 },
+    { lo: 0.17, hi: 0.44, up: 0.40, down: 0.15 },
+    { lo: 0.34, hi: 0.62, up: 0.58, down: 0.32 },
+    { lo: 0.52, hi: 0.82, up: 0.78, down: 0.50 },
+    { lo: 0.70, hi: 1.10, up: 99,   down: 0.68 }
+  ] : [
     { lo: 0.0,  hi: 0.42, up: 0.38, down: -1 },
     { lo: 0.3,  hi: 0.78, up: 0.72, down: 0.28 },
     { lo: 0.62, hi: 0.99, up: 99,   down: 0.58 }
