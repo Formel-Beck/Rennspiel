@@ -35,7 +35,7 @@ window.Bots = (() => {
       list.push({
         id: e.id, name: e.name, ch, cv, model, isBot: true, visible: true,
         x: p.x + n.x * side, z: p.z + n.z * side, y: p.y, a: Math.atan2(t.z, t.x), vx: 0, vz: 0, speed: 0, steer: 0, pitch: 0, roll: 0,
-        maxSpeed: cv.maxSpeed * (st.top || 1), accel: cv.accel * (st.accel || 1), handling: cv.handling * (st.handling || 1),
+        maxSpeed: cv.maxSpeed * (st.top || 1) * (track.speed || 1), accel: cv.accel * (st.accel || 1) * Math.sqrt(track.speed || 1), handling: cv.handling * (st.handling || 1),
         grip: cv.grip, loose: cv.loose, offroad: cv.offroad * (st.offroad || 1),
         lane: (Math.random() * 2 - 1) * 0.45, laneTarget: 0, laneTimer: 0,
         idx: i, lastIdx: i, halfway: false, lap: 0, lapStart: 0, finish: null, progress: 0,

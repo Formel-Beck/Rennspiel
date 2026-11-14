@@ -13,7 +13,7 @@
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = Comic.on ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // Comic: klarere Schattenkanten
   renderer.domElement.id = 'game';
   document.body.prepend(renderer.domElement);
 
@@ -32,6 +32,7 @@
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
+    Comic.resize(innerWidth, innerHeight);
     $('rotateHint').style.display = (MOBILE && innerHeight > innerWidth && phase !== 'menu') ? 'block' : 'none';
   }
   addEventListener('resize', resize);
@@ -56,12 +57,12 @@
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
-  let perf = {};
+  let perf = {}, trackSpeed = 1; // trackSpeed: lange Strecken sind schneller
   function computePerf() {
     const st = PHYS.ignoreStats ? { top: 1, accel: 1, handling: 1, grip: 1, offroad: 1 } : char.stats;
     const v = carCfg;
     perf = {
-      maxSpeed: v.maxSpeed * st.top * TUNE.maxSpeed, accel: v.accel * st.accel * TUNE.accel,
+      maxSpeed: v.maxSpeed * st.top * TUNE.maxSpeed * trackSpeed, accel: v.accel * st.accel * TUNE.accel * Math.sqrt(trackSpeed),
       brake: v.brake * TUNE.brake, handling: v.handling * st.handling * TUNE.handling,
       grip: v.grip * st.grip, loose: v.loose * st.grip, offroad: v.offroad * st.offroad
     };
@@ -133,7 +134,7 @@
   function clearParticles() { for (const p of particles) { p.life = 0; p.s.visible = false; } }
 
   // ---------- Strecke laden ----------
-  let world = null, track = null, theme = null;
+  let world = null, track = null, theme = null, comicTick = 0;
   function disposeScene(scene) {
     scene.remove(carModel.group); scene.remove(particleGroup);
     scene.traverse(o => {
@@ -148,8 +149,10 @@
     clearRemotes(); Bots.clear();
     if (world) disposeScene(world.scene);
     track = def; theme = THEMES[def.theme];
+    trackSpeed = def.speed || 1; computePerf();
     world = buildWorld(def, theme, Q);
     world.scene.add(carModel.group, particleGroup);
+    Comic.world(world); Comic.scan(world.scene);
     headlight.visible = !!theme.night;
     prepMinimap();
   }
@@ -1089,6 +1092,7 @@
     }
     const ri = phase !== 'menu' ? world.roadInfo(car.x, car.z) : null;
     world.update(dt, camera, carModel.group.position, ri && world.inTunnel[ri.index] && ri.dist < world.edge + 3);
+    if (++comicTick % 20 === 0) Comic.scan(world.scene); // neue Objekte bekommen Umrisslinien
     renderer.render(world.scene, camera);
     if (phase !== 'menu') { updateHud(); drawMinimap(); }
     updateEngine(dt);

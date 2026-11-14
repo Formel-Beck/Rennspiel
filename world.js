@@ -739,7 +739,7 @@ window.buildWorld = function (track, theme, Q) {
     sunSprite.material.color.set(tm === 'night' ? '#cfd8ff' : tm === 'evening' ? '#ffb070' : '#ffffff');
     sunSprite.scale.setScalar(tm === 'night' ? 45 : tm === 'evening' ? 190 : 150);
     // Niederschlag
-    const wantSnow = wx === 'snow' || (theme.snowfall && wx !== 'rain');
+    const wantSnow = wx === 'snow' || (!!theme.snowfall && wx !== 'rain'); // !! = immer true/false (undefined würde den Schnee nicht ausblenden)
     if (wantSnow && !snow) snow = makeSnow();
     if (snow) snow.visible = wantSnow;
     if (wx === 'rain' && !rain) rain = makeRain();

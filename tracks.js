@@ -79,7 +79,7 @@ window.TRACKS = [
              [-235, -40, 2], [-180, -80, 4]]
   },
   {
-    id: 'regenbogen', name: 'Abenteuer-Rallye', theme: 'rainbow', width: 28, laps: 3, difficulty: 2,
+    id: 'regenbogen', name: 'Abenteuer-Rallye', theme: 'rainbow', width: 28, laps: 3, difficulty: 2, speed: 1.35, // 35 % schneller – die Strecke ist sehr lang
     info: '6 km Abenteuer: Flüsse, Berge, Schlucht und zwei Tunnel – mit ?-Boxen und Spezial-Boosts!',
     items: true,                                       // ?-Boxen und Spezial-Boosts auf dieser Strecke
     itemRows: [0.04, 0.13, 0.22, 0.31, 0.47, 0.55, 0.64, 0.72, 0.84, 0.93],
