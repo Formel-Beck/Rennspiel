@@ -38,8 +38,7 @@ window.DevMode = (() => {
         ['race.laps', 'Runden (0 = wie Strecke)', 0, 10, 1],
         ['race.itemsAll', 'Items auf allen Strecken', 'bool']] },
       { title: '🔊 Sound', items: [
-        ['sound.engineVol', 'Motor-Lautstärke', 0, 2, 0.05, times],
-        ['sound.musicVol', 'Musik-Lautstärke', 0, 1.5, 0.05, times]] },
+        ['sound.engineVol', 'Motor-Lautstärke', 0, 2, 0.05, times]] },
       { title: '📱 Kippsteuerung', items: [
         ['tilt.sens', 'Empfindlichkeit', 0.4, 2.5, 0.05, times],
         ['tilt.invert', 'Richtung umkehren', 'bool']] },

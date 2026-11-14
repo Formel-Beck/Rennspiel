@@ -176,7 +176,6 @@
     if (key === 'r' && phase !== 'menu' && !MP.racing) startRace();
     if (key === 'c') switchCam();
     if (key === 'p' || key === 'escape') togglePause();
-    if (key === 'h') honk();
     if ((key === ' ' || key === 'e') && phase === 'race') { e.preventDefault(); Items.useItem(car); }
     if (key === 'q' && phase === 'race') Items.useSpecial(car);
   });
@@ -270,18 +269,12 @@
     og.gain.setValueAtTime(Math.min(0.5, strength * 0.03), t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
     o.connect(og).connect(ctx.destination); o.start(t); o.stop(t + 0.3);
   }
-  let lastHonk = 0;
-  function honk() {
-    ensureAudio();
-    if (!audio || muted || performance.now() - lastHonk < 500) return;
-    lastHonk = performance.now();
-    Drivers.honk(char, audio.ctx, audio.ctx.destination);
-    MP.sendHonk();
-  }
   let musicOn = true, musicVol = 0.5;
   try { musicOn = localStorage.getItem('rennspiel-music') !== '0'; } catch (e) {}
+  // Musik ist vorerst ganz ausgeschaltet (zu laut). Zum Wieder-Einschalten MUSIC_ENABLED auf true setzen.
+  const MUSIC_ENABLED = false;
   function startMusic() {
-    if (!audio || muted || !musicOn) return;
+    if (!MUSIC_ENABLED || !audio || muted || !musicOn) return;
     Music.setVolume(SOUND.musicVol); Music.play(audio.ctx, theme && track.theme, track && track.id);
   }
   function updateMusicBtn() { $('musicBtn').textContent = musicOn ? '🎵' : '🎵̸'; $('musicBtn').style.opacity = musicOn ? 1 : 0.45; }
@@ -291,6 +284,7 @@
     if (musicOn && phase !== 'menu') { ensureAudio(); startMusic(); } else Music.stop();
   });
   updateMusicBtn();
+  if (!MUSIC_ENABLED) $('musicBtn').style.display = 'none';
   // Jubel der Zuschauer
   function cheerSound(len) {
     if (!audio || muted) return;
@@ -692,7 +686,7 @@
     lastResult = { total, best, newTotal, newLap };
     myFinish = total;
     if (MP.racing) MP.sendFinish(total);
-    flash('ZIEL!', 1.6); setTimeout(honk, 500); world.cheer(1); cheerSound(3.5);
+    flash('ZIEL!', 1.6); world.cheer(1); cheerSound(3.5);
     beep(880, 0.15); setTimeout(() => beep(1320, 0.3), 160);
   }
   // Online-Bestenliste: eintragen und anzeigen
@@ -800,8 +794,8 @@
 
   // ---------- Anzeige ----------
   function updateHud() {
-    $('placeRow').style.display = hasRivals() ? '' : 'none';
     if (hasRivals()) { const st = standings(); $('place').textContent = (st.findIndex(e => e.me) + 1) + ' / ' + st.length; }
+    else $('place').textContent = '1 / 1';
     $('lap').textContent = Math.min(lap, lapsNeeded()) + ' / ' + lapsNeeded();
     const racing = phase === 'race' || (phase === 'paused' && pausedFrom === 'race');
     $('time').textContent = fmt(racing ? gameTime - raceStart : phase === 'finished' ? lastResult.total : 0);
@@ -909,7 +903,7 @@
       b.className = 'char' + (c.id === char.id ? ' sel' : '');
       b.style.setProperty('--c', c.color);
       b.innerHTML = `<img src="${preview.portrait(c)}" alt=""><span>${c.name}</span>`;
-      b.addEventListener('click', () => { if (c.id !== char.id) { setCharacter(c); renderChars(); } honk(); });
+      b.addEventListener('click', () => { if (c.id !== char.id) { setCharacter(c); renderChars(); } });
       grid.appendChild(b);
     }
     $('charImg').src = preview.portrait(char);
@@ -941,7 +935,6 @@
       .map(([l, k]) => `<div class="st"><span>${l}</span><b>${carBars(k, carCfg[k])}</b></div>`).join('');
     $('sumCar').textContent = carCfg.name;
   }
-  $('hornTest').addEventListener('click', honk);
 
   // Menü-Schritte: 0 = Fahrer, 1 = Fahrzeug, 2 = Strecke
   let menuStep = 0;
@@ -1056,7 +1049,6 @@
   // Knöpfe
   $('pauseBtn').addEventListener('click', togglePause);
   $('camBtn').addEventListener('click', switchCam);
-  $('hornBtn').addEventListener('click', honk);
   for (const [id, fn] of [['btnItem', () => Items.useItem(car)], ['btnSpecial', () => Items.useSpecial(car)], ['itemSlot', () => Items.useItem(car)], ['specBar', () => Items.useSpecial(car)]])
     $(id).addEventListener('pointerdown', e => { e.preventDefault(); if (phase === 'race') fn(); });
   $('resumeBtn').addEventListener('click', togglePause);
@@ -1285,12 +1277,6 @@
       startRace(slot, atm);
       startMusic();
     }, 30);
-  };
-  MP.onHonk = id => {
-    const p = MP.players.get(id);
-    if (!p || !audio || muted) return;
-    const g = audio.ctx.createGain(); g.gain.value = 0.5; g.connect(audio.ctx.destination);
-    Drivers.honk(CHARACTERS.find(c => c.id === p.char) || CHARACTERS[0], audio.ctx, g);
   };
   MP.onLeave = (id, wasRacing) => {
     if (id) { removeRemote(id); return; }
