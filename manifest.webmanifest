@@ -1,7 +1,7 @@
 {
-  "name": "Rennspiel",
-  "short_name": "Rennspiel",
-  "description": "3D-Rennspiel mit den Fahrern aus Marienfeld",
+  "name": "Formel-Beck",
+  "short_name": "Formel-Beck",
+  "description": "Formel-Beck – 3D-Rennspiel mit den Fahrern aus Marienfeld",
   "lang": "de",
   "start_url": "./",
   "scope": "./",

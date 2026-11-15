@@ -34,3 +34,9 @@ window.CARS = [
     // 80er-Turbo-Vierzylinder: kernig und rauer, dreht weniger hoch, lautes Lader-Pfeifen
     sound: { cyl: 4, idle: 850, redline: 6000, rough: 0.3, body: 70, bright: 0.85, sub: 0.38, induct: 0.25, crackle: 0.25, spool: 0 } }
 ];
+
+// Beschleunigung: kräftig beim Anfahren, nahe am Höchsttempo immer weniger
+// (wie Luftwiderstand). So erreicht man das Höchsttempo nicht mehr sofort.
+//  ACCEL_SCALE = allgemeine Stärke, v = Tempo, top = Höchsttempo
+window.ACCEL_SCALE = 0.5;
+window.accelFactor = (v, top) => ACCEL_SCALE * Math.max(0.1, 1 - Math.pow(Math.max(0, v) / Math.max(1, top), 2));

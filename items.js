@@ -288,10 +288,12 @@ window.Items = (() => {
         const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter(), l = ctx.createOscillator(), lg = ctx.createGain();
         o.type = 'sawtooth'; o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(60, t + 0.9);
         l.frequency.value = 23; lg.gain.value = 30; l.connect(lg).connect(o.frequency);
-        f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 6;
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.04); g.gain.setValueAtTime(0.35, t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
-        o.connect(f).connect(g).connect(out); o.start(t); l.start(t); o.stop(t + 1.05); l.stop(t + 1.05);
-        noise(0.9, 0.12, 300);
+        f.type = 'lowpass'; f.frequency.value = 650; f.Q.value = 5;
+        // Verzerrung: macht den Furz kräftiger und auch auf Handy-Lautsprechern laut
+        const sh = ctx.createWaveShaper(), cv = new Float32Array(512); for (let i = 0; i < 512; i++) { const x = i / 256 - 1; cv[i] = Math.tanh(x * 4); } sh.curve = cv;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1.0, t + 0.04); g.gain.setValueAtTime(0.9, t + 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
+        o.connect(f).connect(sh).connect(g).connect(out); o.start(t); l.start(t); o.stop(t + 1.2); l.stop(t + 1.2);
+        noise(1.0, 0.35, 320);
         break;
       }
       default: { // Fahrer-Hupen wiederverwenden

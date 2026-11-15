@@ -5,7 +5,7 @@
 //  (jeder Zylinder zündet einmal) in einen Ton-Speicher und spielen
 //  ihn in einer Schleife ab – schneller bei höherer Drehzahl.
 //  Leicht ungleiche Zylinder ergeben das typische Blubbern.
-//  Dazu gibt es 3 Gänge: beim Hochschalten fällt die Drehzahl,
+//  Dazu gibt es 5 (Rallye: 6) Gänge: beim Hochschalten fällt die Drehzahl,
 //  und ganz oben regelt ein Drehzahlbegrenzer ab.
 // =====================================================
 window.EngineSound = function (ctx, out, opts) {
@@ -109,9 +109,13 @@ window.EngineSound = function (ctx, out, opts) {
     { lo: 0.56, hi: 0.92, up: 0.87, down: 0.54 },
     { lo: 0.72, hi: 1.34, up: 99,   down: 0.70 }
   ] : [
-    { lo: 0.0,  hi: 0.42, up: 0.38, down: -1 },
-    { lo: 0.3,  hi: 0.78, up: 0.72, down: 0.28 },
-    { lo: 0.62, hi: 0.99, up: 99,   down: 0.58 }
+    // Alle anderen Strecken: 5 Gänge. Bei Höchsttempo dreht der Motor etwa auf drei
+    // Viertel, der Begrenzer kommt erst bei rund 120 % (Boost, Abfahrt).
+    { lo: 0.0,  hi: 0.24, up: 0.21, down: -1 },
+    { lo: 0.16, hi: 0.42, up: 0.38, down: 0.14 },
+    { lo: 0.32, hi: 0.60, up: 0.56, down: 0.30 },
+    { lo: 0.46, hi: 0.80, up: 0.75, down: 0.44 },
+    { lo: 0.62, hi: 1.22, up: 99,   down: 0.60 }
   ];
   let gear = 0, rpm = 0.12, shiftT = 0;
   // Drehzahlbegrenzer: Bei voller Drehzahl unterbricht der Motor kurz
@@ -123,7 +127,7 @@ window.EngineSound = function (ctx, out, opts) {
   // slip = seitliches Rutschen (m/s), slope = Steigung (-1 bis 1)
   function update(dt, speed, maxSpeed, throttle, active, slip, slope, volume) {
     lastVol = volume == null ? 1 : volume;
-    const sf = Math.min(opts.long ? 1.4 : 1.1, Math.abs(speed) / maxSpeed);
+    const sf = Math.min(opts.long ? 1.4 : 1.25, Math.abs(speed) / maxSpeed);
     // Schalten (mit Abstand zwischen hoch und runter, damit er nicht hin und her springt)
     if (shiftT <= 0) {
       if (sf > GEARS[gear].up && gear < GEARS.length - 1) { gear++; shiftT = 0.22; }

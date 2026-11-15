@@ -53,7 +53,7 @@
   // Einstellbare Werte (der Entwicklermodus ändert sie)
   const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
   const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
-  const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1, musicVol: 0.5 }, DEBUG = { fps: false, info: false };
+  const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1, musicVol: 1 }, DEBUG = { fps: false, info: false };
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
 
   // Fahrwerte = Fahrzeug × Fahrer-Bonus × Entwicklermodus
@@ -274,19 +274,28 @@
   }
   let musicOn = true, musicVol = 0.5;
   try { musicOn = localStorage.getItem('rennspiel-music') !== '0'; } catch (e) {}
-  // Musik ist vorerst ganz ausgeschaltet (zu laut). Zum Wieder-Einschalten MUSIC_ENABLED auf true setzen.
-  const MUSIC_ENABLED = false;
+  // Musik: im Menü ein ruhiger, anregender Groove, im Rennen leiser (Motor soll man gut hören)
+  const MUSIC_ENABLED = true;
+  const MUSIC_LEVEL = { menu: 0.45, race: 0.4 };
   function startMusic() {
     if (!MUSIC_ENABLED || !audio || muted || !musicOn) return;
-    Music.setVolume(SOUND.musicVol); Music.play(audio.ctx, theme && track.theme, track && track.id);
+    Music.setVolume(SOUND.musicVol);
+    if (phase === 'menu') Music.play(audio.ctx, 'menu', 'menu', { level: MUSIC_LEVEL.menu });
+    else Music.play(audio.ctx, theme && track.theme, track && track.id, { level: MUSIC_LEVEL.race, race: true });
   }
   function updateMusicBtn() { $('musicBtn').textContent = musicOn ? '🎵' : '🎵̸'; $('musicBtn').style.opacity = musicOn ? 1 : 0.45; }
   $('musicBtn').addEventListener('click', () => {
     musicOn = !musicOn; updateMusicBtn();
     try { localStorage.setItem('rennspiel-music', musicOn ? '1' : '0'); } catch (e) {}
-    if (musicOn && phase !== 'menu') { ensureAudio(); startMusic(); } else Music.stop();
+    if (musicOn) { ensureAudio(); startMusic(); } else Music.stop();
   });
   updateMusicBtn();
+  const firstTouch = () => {
+    ensureAudio();
+    if (phase === 'menu' && !Music.playing) startMusic();
+    removeEventListener('pointerdown', firstTouch); removeEventListener('keydown', firstTouch);
+  };
+  addEventListener('pointerdown', firstTouch); addEventListener('keydown', firstTouch);
   if (!MUSIC_ENABLED) $('musicBtn').style.display = 'none';
   // Jubel der Zuschauer
   function cheerSound(len) {
@@ -301,7 +310,7 @@
   function updateSoundBtn() { $('soundBtn').textContent = muted ? '🔇' : '🔊'; }
   $('soundBtn').addEventListener('click', () => {
     muted = !muted; updateSoundBtn(); ensureAudio();
-    if (muted) Music.stop(); else if (phase !== 'menu') startMusic();
+    if (muted) Music.stop(); else startMusic();
     try { localStorage.setItem('rennspiel-muted', muted ? '1' : '0'); } catch (e) {}
   });
   updateSoundBtn();
@@ -427,7 +436,7 @@
   function goToMenu() {
     phase = 'menu';
     Bots.clear();
-    Music.stop();
+    startMusic(); // zurück zur Menü-Musik
     resetKeys();
     setUI('menu');
     renderMenu();
@@ -519,7 +528,7 @@
     // Antrieb: Heckantrieb dreht mit Gas in der Kurve stärker ein und rutscht leichter (Drift)
     const steerIn = (input.right ? 1 : 0) - (input.left ? 1 : 0) || (input.steer || 0);
     const rwdK = carCfg.drive === 'rwd' && input.up && !M.spin && vF > 12 ? (carCfg.oversteer || 0) * Math.min(1, (vF - 12) / 25) * Math.min(1, Math.abs(steerIn) * 1.5) : 0;
-    if (input.up) { if (vF < top) vF += perf.accel * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
+    if (input.up) { if (vF < top) vF += perf.accel * accelFactor(vF, top) * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
     else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
     else { const fr = 14 * dt; vF = Math.abs(vF) < fr ? 0 : vF - Math.sign(vF) * fr; }
     vF -= 9.81 * slope * PHYS.gravity * dt;                 // Schwerkraft

@@ -563,11 +563,11 @@ window.buildWorld = function (track, theme, Q) {
       const sides = Math.abs(turn) > 0.04 ? [turn > 0 ? -1 : 1] : [alt, -alt];
       if (!deck.length) { const prev = lastAd; nextAd(); deck.push(lastAd); lastAd = prev; } // nächstes Bild anschauen, noch nicht verbrauchen
       const ad = ADS[deck[deck.length - 1]];
-      const a = ad.a, w = a >= 1 ? Math.min(11, 5.8 * a) : 7 * a, h = a >= 1 ? w / a : 7;
+      const a = ad.a, w = a >= 1 ? Math.min(16, 8.5 * a) : 10 * a, h = a >= 1 ? w / a : 10;
       const p = path[i], n = norm[i], t = tang[i];
       let placed = false;
       for (const sg of sides) {
-        const off = edge + CURB + 4.5 + w * 0.2;
+        const off = edge + CURB + 5 + w * 0.22;
         const cx = p.x + n.x * sg * off, cz = p.z + n.z * sg * off;
         // zur Strasse und zu den ankommenden Autos gedreht
         let fx = -n.x * sg * 0.8 - t.x * 0.6, fz = -n.z * sg * 0.8 - t.z * 0.6; const fl = Math.hypot(fx, fz); fx /= fl; fz /= fl;
@@ -584,7 +584,7 @@ window.buildWorld = function (track, theme, Q) {
         if (!ok || reserved.some(b => Math.hypot(b.x - cx, b.z - cz) < b.r + w / 2)) continue;
         const idx = deck.pop(); lastAd = idx;
         const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = Math.atan2(fx, fz);
-        const bottom = Math.max(gy, p.y) + 2.0, cy = bottom + h / 2;
+        const bottom = Math.max(gy, p.y) + 2.5, cy = bottom + h / 2;
         const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, h + 0.5, 0.3), frameMat);
         frame.position.y = cy; frame.castShadow = Q.shadows; g.add(frame);
         const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), adMat(idx));

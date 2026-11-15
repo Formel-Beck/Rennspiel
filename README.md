@@ -1,4 +1,4 @@
-# Rennspiel
+# Formel-Beck
 
 3D-Rennspiel im Browser mit den Fahrern aus Marienfeld. Läuft am Handy als App (Web-App) und offline.
 

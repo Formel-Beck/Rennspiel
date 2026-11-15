@@ -14,14 +14,15 @@ window.Music = (() => {
   const STYLES = {
     forest:    { name: 'Wald-Folk',   bpm: 118, key: 62, scale: MAJOR, chords: [0, 4, 5, 3], lead: 'whistle', bass: 'pluck', drums: 'folk',   pad: false, swing: 0.1 },
     city:      { name: 'Synthwave',   bpm: 102, key: 57, scale: MINOR, chords: [0, 5, 2, 6], lead: 'saw',     bass: 'synth', drums: 'synth',  pad: true,  swing: 0 },
-    desert:    { name: 'Surf-Rock',   bpm: 152, key: 52, scale: HARM,  chords: [0, 0, 5, 4], lead: 'twang',   bass: 'pluck', drums: 'surf',   pad: false, swing: 0 },
+    desert:    { name: 'Surf-Rock',   bpm: 152, key: 52, scale: HARM,  chords: [0, 0, 5, 4], lead: 'twang',   bass: 'pluck', drums: 'surf',   pad: false, swing: 0, gain: 0.77 },
     mountains: { name: 'Gipfel-Epos', bpm: 92,  key: 50, scale: MINOR, chords: [0, 5, 2, 6], lead: 'horn',    bass: 'synth', drums: 'epic',   pad: true,  swing: 0 },
     beach:     { name: 'Reggae',      bpm: 82,  key: 60, scale: MAJOR, chords: [0, 3, 4, 3], lead: 'steel',   bass: 'round', drums: 'reggae', pad: false, swing: 0.15, skank: true },
-    snow:      { name: 'Glockenspiel',bpm: 112, key: 67, scale: MAJOR, chords: [0, 5, 3, 4], lead: 'glock',   bass: 'round', drums: 'sleigh', pad: true,  swing: 0.05 },
+    snow:      { name: 'Glockenspiel',bpm: 112, key: 67, scale: MAJOR, chords: [0, 5, 3, 4], lead: 'glock',   bass: 'round', drums: 'sleigh', pad: true,  swing: 0.05, gain: 0.72 },
+    menu:      { name: 'Menü-Groove', bpm: 108, key: 60, scale: MAJOR, chords: [0, 5, 3, 4], lead: 'epiano',  bass: 'round', drums: 'pop',    pad: true,  swing: 0.06 },
     rainbow:   { name: 'Chiptune',    bpm: 142, key: 60, scale: MAJOR, chords: [0, 4, 5, 3], lead: 'chip',    bass: 'chip',  drums: 'chip',   pad: false, swing: 0, arp: true }
   };
 
-  let ctx = null, out = null, timer = null, style = null, song = null, step = 0, nextTime = 0, tempoMul = 1, volume = 0.5, playing = false;
+  let ctx = null, out = null, timer = null, style = null, song = null, step = 0, nextTime = 0, tempoMul = 1, volume = 1, playing = false;
   const freq = midi => 440 * Math.pow(2, (midi - 69) / 12);
 
   // ---------- Lied erzeugen (pro Strecke immer gleich) ----------
@@ -77,6 +78,7 @@ window.Music = (() => {
     horn(m, t, len) { const g = voice(t, len, 0, 1100); env(g, t, 0.08, 0.13, 0.2, 0.8, len + 0.15); osc('sawtooth', freq(m - 12), t, len + 0.15, g, -5); osc('sawtooth', freq(m - 12), t, len + 0.15, g, 5); },
     steel(m, t, len) { const g = voice(t, len); env(g, t, 0.005, 0.2, 0.3, 0.15, 0.6); osc('sine', freq(m + 12), t, 0.6, g); const g2 = voice(t, len); env(g2, t, 0.005, 0.06, 0.15, 0.1, 0.4); osc('sine', freq(m + 12) * 2.76, t, 0.4, g2); },
     glock(m, t, len) { const g = voice(t, len); env(g, t, 0.003, 0.18, 0.4, 0.1, 0.9); osc('sine', freq(m + 24), t, 0.9, g); const g2 = voice(t, len); env(g2, t, 0.003, 0.05, 0.1, 0.1, 0.3); osc('sine', freq(m + 24) * 3.9, t, 0.3, g2); },
+    epiano(m, t, len) { const g = voice(t, len, 0, 2400); env(g, t, 0.006, 0.13, 0.35, 0.35, len + 0.35); osc('sine', freq(m), t, len + 0.35, g); const g2 = voice(t, len); env(g2, t, 0.004, 0.035, 0.12, 0.2, 0.3); osc('sine', freq(m) * 2, t, 0.3, g2); osc('triangle', freq(m) * 3.01, t, 0.25, g2); },
     chip(m, t, len) { const g = voice(t, len); env(g, t, 0.005, 0.07, 0.05, 0.8, len); osc('square', freq(m + 12), t, len, g); },
     // Bass
     pluck(m, t, len) { const g = voice(t, len, 0, 900); env(g, t, 0.005, 0.25, 0.2, 0.3, len); osc('triangle', freq(m - 24), t, len, g); osc('sawtooth', freq(m - 24), t, len, g); },
@@ -115,6 +117,7 @@ window.Music = (() => {
       case 'epic': if (at([0, 3, 8, 11], s)) DRUM.timp(t); if (at([12, 14, 15], s) && bar % 4 === 3) DRUM.snare(t, 0.8); break;
       case 'reggae': if (s === 8) DRUM.kick(t); if (s === 8) DRUM.snare(t, 0.6); if (s % 2 === 1) DRUM.hat(t, 0.7); break;
       case 'sleigh': if (at([0, 8], s)) DRUM.kick(t, 0.5); if (s % 2 === 0) DRUM.bells(t); break;
+      case 'pop': if (at([0, 7, 8], s)) DRUM.kick(t, 0.55); if (at([4, 12], s)) DRUM.snare(t, 0.55); if (s % 2 === 0) DRUM.hat(t, s % 4 === 2 ? 0.8 : 0.45); if (at([14], s) && bar % 2) DRUM.clap(t); break;
       case 'chip': if (at([0, 8, 10], s)) DRUM.kick(t, 0.6); if (at([4, 12], s)) DRUM.chipnoise(t, 1.4); if (s % 2 === 0) DRUM.chipnoise(t, 0.35); break;
     }
   }
@@ -148,13 +151,22 @@ window.Music = (() => {
     }
   }
 
-  function play(audioCtx, themeId, trackId) {
+  // o.level = Grundlautstärke (Menü lauter, Rennen leiser),
+  // o.race  = im Rennen die tiefen Töne wegfiltern, damit der Motor-Bass frei bleibt
+  let level = 0.3;
+  function play(audioCtx, themeId, trackId, o) {
     stop();
-    ctx = audioCtx;
+    ctx = audioCtx; o = o || {};
     style = STYLES[themeId] || STYLES.rainbow;
+    level = (o.level != null ? o.level : 0.3) * (style.gain || 1); // alle Stile etwa gleich laut
     song = makeSong(style, trackId || themeId);
-    out = ctx.createGain(); out.gain.value = volume * 0.6;
-    const comp = ctx.createDynamicsCompressor(); out.connect(comp).connect(ctx.destination);
+    out = ctx.createGain(); out.gain.value = 0.0001;
+    out.gain.setTargetAtTime(volume * level, ctx.currentTime, 0.6);            // sanft einblenden
+    if (o.race) {
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 160; hp.Q.value = 0.6;
+      const dip = ctx.createBiquadFilter(); dip.type = 'peaking'; dip.frequency.value = 450; dip.Q.value = 0.8; dip.gain.value = -4; // Platz für den Motor
+      out.connect(hp).connect(dip).connect(ctx.destination);
+    } else out.connect(ctx.destination);
     step = 0; tempoMul = 1; nextTime = ctx.currentTime + 0.1; playing = true;
     timer = setInterval(tick, 25);
   }
@@ -163,7 +175,7 @@ window.Music = (() => {
     if (out && ctx) { const o = out; o.gain.setTargetAtTime(0, ctx.currentTime, 0.2); setTimeout(() => { try { o.disconnect(); } catch (e) {} }, 800); }
     out = null;
   }
-  function setVolume(v) { volume = v; if (out && ctx) out.gain.setTargetAtTime(v * 0.6, ctx.currentTime, 0.1); }
+  function setVolume(v) { volume = v; if (out && ctx) out.gain.setTargetAtTime(v * level, ctx.currentTime, 0.1); }
   function faster(on) { tempoMul = on ? 1.08 : 1; }
 
   return { play, stop, setVolume, faster, styleName: id => (STYLES[id] || STYLES.rainbow).name, get playing() { return playing; } };

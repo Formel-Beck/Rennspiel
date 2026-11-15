@@ -122,7 +122,7 @@ window.Bots = (() => {
         b.a += b.spinDir * 8.5 * dt; b.speed *= Math.exp(-1.6 * dt); want = 0;
       } else {
         const acc = b.accel * Math.min(1, (sf.accel || 1) * (sf.topAbs ? b.offroad : 1)) * clamp(grip * 1.6, 0.3, 1) * (boostAmt > 0 ? 2.6 : 1);
-        if (b.speed < target) b.speed = Math.min(target, b.speed + acc * dt);
+        if (b.speed < target) b.speed = Math.min(target, b.speed + acc * (boostAmt > 0 ? ACCEL_SCALE : accelFactor(b.speed, b.maxSpeed)) * dt);
         else b.speed = Math.max(target, b.speed - (sf.drag && b.speed > target + 5 ? Math.max(sf.drag, 40) : 40) * dt);
         b.speed -= 9.81 * slope * 0.8 * dt;
         const turn = b.handling * Math.min(1, b.speed / 12) * (0.55 + 0.45 * Math.min(1, grip)) * (b.rocket > 0 ? 1.4 : 1);
