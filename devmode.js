@@ -25,6 +25,7 @@ window.DevMode = (() => {
       { title: '🧲 Fahrphysik', items: [
         ['phys.gripAll', 'Grip überall', 0.2, 2, 0.05, times],
         ['phys.slide', 'Wie schnell Rutschen aufhört', 2, 40, 1],
+        ['phys.steerRate', 'Lenk-Geschwindigkeit', 0.4, 3, 0.05, times],
         ['phys.gravity', 'Schwerkraft am Hang', 0, 3, 0.1],
         ['phys.offroadSpeed', 'Tempo im Gelände', 0.3, 3, 0.05, times],
         ['phys.collisions', 'Bäume und Häuser fest', 'bool'],

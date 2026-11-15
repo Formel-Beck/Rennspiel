@@ -40,3 +40,6 @@ window.CARS = [
 //  ACCEL_SCALE = allgemeine Stärke, v = Tempo, top = Höchsttempo
 window.ACCEL_SCALE = 0.5;
 window.accelFactor = (v, top) => ACCEL_SCALE * Math.max(0.1, 1 - Math.pow(Math.max(0, v) / Math.max(1, top), 2));
+
+// Lenkung: bei hohem Tempo lenkt das Auto etwas weniger stark (ruhiger, stabiler)
+window.steerSpeedFactor = v => 1 / (1 + 0.4 * Math.max(0, Math.abs(v) - 20) / 40);

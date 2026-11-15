@@ -11,6 +11,8 @@
 //     werden automatisch etwas geglättet.
 //   - Steigung lieber unter 10 % (z.B. 5 m Höhe auf 50 m Strecke)
 //   - Zwei Strassenteile müssen mind. Strassenbreite + 10 m auseinander sein
+//   - Ein Punkt mit 4. Wert 1 ([x, z, höhe, 1]) ist eine gewollt enge Bremskurve.
+//     Alle anderen Kurven werden auf mindestens 40 m Radius geglättet (minRadius).
 //   - laps = Anzahl Runden
 //   - difficulty = Schwierigkeit: 1 = Leicht, 2 = Mittel, 3 = Schwer
 //   - items: true = ?-Boxen und Spezial-Boosts (itemRows = wo die Boxen stehen)
@@ -25,11 +27,14 @@
 // =====================================================
 window.TRACKS = [
   {
-    id: 'waldring', name: 'Waldring', theme: 'forest', width: 26, laps: 4, difficulty: 1,
-    info: 'Kurzer Klassiker zwischen Tannen – Achtung, Schlammloch!',
-    patches: [{ surface: 'mud', from: 0.52, to: 0.57 }],
-    points: [[-105, 0, 0], [-99, -48, 2], [-51, -73, 5], [12, -60, 6], [42, -18, 3], [87, -54, 1], [123, -33, 0],
-             [117, 33, 2], [66, 66, 4], [3, 51, 2], [-36, 78, 0], [-90, 66, 0]]
+    id: 'waldring', name: 'Waldring', theme: 'forest', width: 26, laps: 3, difficulty: 1,
+    info: 'Lange Gerade, Haarnadel ins Infield, Schlangenlinien den Hügel hinauf, zweite Haarnadel unten und Wellen bis zum Schlammloch.',
+    patches: [{ surface: 'mud', from: 0.8, to: 0.84 }],
+    // [x, z, höhe, 1 = gewollt enge Bremskurve]
+    points: [[-80, -132, 1], [10, -130, 2], [85, -108, 3], [124, -78, 4], [128, -42, 5, 1], [92, -30, 6],
+             [30, -42, 6], [-40, -56, 7], [-95, -42, 8], [-102, 8, 9], [-48, 36, 10], [8, 16, 11], [65, 26, 12], [112, 55, 12],
+             [168, 58, 10], [212, 92, 8], [200, 140, 6, 1], [150, 152, 5], [92, 126, 4], [40, 152, 3], [-20, 128, 2], [-80, 152, 1],
+             [-140, 126, 0], [-190, 80, 0], [-206, 10, 0], [-196, -70, 0], [-160, -118, 0]]
   },
   {
     id: 'neoncity', name: 'Neon City', theme: 'city', width: 22, laps: 3, difficulty: 2,
@@ -54,7 +59,7 @@ window.TRACKS = [
              [-255, -160, 3]]
   },
   {
-    id: 'pass', name: 'Passstrasse', theme: 'mountains', width: 20, laps: 2, difficulty: 3,
+    id: 'pass', name: 'Passstrasse', theme: 'mountains', width: 20, laps: 2, difficulty: 3, minRadius: 0, // Spitzkehren bleiben eng
     info: 'Schmale Strasse, fünf Spitzkehren bergauf, dann die rasante Abfahrt.',
     points: [[-100, 150, 0], [-160, 150, 2.6], [-215, 150, 5.2], [-215, 105, 7.8], [-160, 105, 10.4], [-100, 105, 13], [-100, 60, 15.6],
              [-160, 60, 18.2], [-215, 60, 20.8], [-215, 15, 23.4], [-160, 15, 26], [-100, 15, 28.6], [-100, -30, 31.2], [-160, -30, 33.8],
@@ -63,12 +68,13 @@ window.TRACKS = [
              [-40, 165, 1]]
   },
   {
-    id: 'kueste', name: 'Küstenstrasse', theme: 'beach', width: 26, laps: 2, difficulty: 1,
-    info: 'Kurvig am Meer entlang, zurück über die Hügel.',
-    patches: [{ surface: 'sanddrift', from: 0.12, to: 0.16 }, { surface: 'sanddrift', from: 0.26, to: 0.29 }],
-    points: [[-250, 125, 2], [-185, 142, 2], [-120, 122, 2], [-55, 145, 1], [10, 125, 1], [75, 145, 1], [140, 125, 2],
-             [205, 140, 2], [260, 95, 3], [275, 20, 5], [250, -60, 8], [195, -115, 10], [130, -95, 12], [70, -140, 14],
-             [5, -110, 12], [-60, -150, 10], [-125, -115, 9], [-190, -145, 7], [-250, -100, 5], [-280, -20, 4], [-280, 60, 3]]
+    id: 'kueste', name: 'Küstenstrasse', theme: 'beach', width: 26, laps: 2, difficulty: 2,
+    info: 'Schnell am Strand entlang mit einer Schikane, dann den Klippenhügel hinauf zur Spitzkehre und in Schlangenlinien wieder hinunter.',
+    patches: [{ surface: 'sanddrift', from: 0.10, to: 0.13 }, { surface: 'sanddrift', from: 0.27, to: 0.30 }, { surface: 'sanddrift', from: 0.86, to: 0.89 }],
+    points: [[-260, 140, 2], [-180, 148, 2], [-110, 142, 2], [-62, 140, 2], [-42, 116, 2, 1], [-8, 116, 2, 1], [24, 142, 2],
+             [80, 150, 2], [150, 135, 3], [215, 145, 3], [268, 110, 5], [285, 40, 9], [258, -20, 14], [262, -90, 19],
+             [235, -128, 22, 1], [205, -92, 21], [160, -40, 18], [100, -55, 15], [52, -12, 12], [-5, -42, 10], [-60, -8, 8],
+             [-115, -58, 7], [-172, -108, 5], [-242, -98, 4], [-286, -40, 3], [-292, 40, 2], [-284, 108, 2]]
   },
   {
     id: 'gletscher', name: 'Gletscher-Knochen', theme: 'snow', width: 22, laps: 3, difficulty: 3,

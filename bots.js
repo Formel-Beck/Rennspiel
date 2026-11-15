@@ -98,7 +98,8 @@ window.Bots = (() => {
       for (const ahead of [0, 15, 35, 60]) {
         const j = (b.idx + Math.round(ahead / 5)) % N, ang = curveAhead(j, 20);
         if (ang < 0.02) continue;
-        const R = 20 / ang, vCurve = b.handling * (0.55 + 0.45 * gripNow) * R * level.corner * 0.92;
+        const R = 20 / ang, v0 = b.handling * (0.55 + 0.45 * gripNow) * R * level.corner * 0.92;
+        const vCurve = v0 * steerSpeedFactor(v0 * steerSpeedFactor(v0)); // Lenkung wird bei Tempo schwächer
         target = Math.min(target, Math.sqrt(vCurve * vCurve + 2 * 30 * ahead)); // 30 m/s² Bremsweg
       }
       target = Math.max(target, 14);
@@ -125,7 +126,7 @@ window.Bots = (() => {
         if (b.speed < target) b.speed = Math.min(target, b.speed + acc * (boostAmt > 0 ? ACCEL_SCALE : accelFactor(b.speed, b.maxSpeed)) * dt);
         else b.speed = Math.max(target, b.speed - (sf.drag && b.speed > target + 5 ? Math.max(sf.drag, 40) : 40) * dt);
         b.speed -= 9.81 * slope * 0.8 * dt;
-        const turn = b.handling * Math.min(1, b.speed / 12) * (0.55 + 0.45 * Math.min(1, grip)) * (b.rocket > 0 ? 1.4 : 1);
+        const turn = b.handling * Math.min(1, b.speed / 12) * (0.55 + 0.45 * Math.min(1, grip)) * (b.rocket > 0 ? 1.4 : 1) * steerSpeedFactor(b.speed);
         b.steer = clamp(want * 3, -1, 1);
         b.a += b.steer * turn * dt;
       }

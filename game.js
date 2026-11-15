@@ -51,7 +51,7 @@
   carModel.group.add(headlight, headlight.target);
 
   // Einstellbare Werte (der Entwicklermodus ändert sie)
-  const PHYS = { gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
+  const PHYS = { steerRate: 1, gripAll: 1, slide: 20, gravity: 0.8, offroadSpeed: 1, collisions: true, bounce: 1.3, ignoreStats: false };
   const TUNE = { maxSpeed: 1, accel: 1, brake: 1, handling: 1 }; // Multiplikatoren fürs Fahrzeug
   const RACE = { laps: 0, itemsAll: false }, SOUND = { engineVol: 1, musicVol: 1 }, DEBUG = { fps: false, info: false };
   const lapsNeeded = () => (MP.racing && MP.laps) || RACE.laps || track.laps;
@@ -96,7 +96,7 @@
     computePerf();
     applyCarToModel();
   }
-  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, pitch: 0, roll: 0, turboP: 0, lastUp: false };
+  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, steerIn: 0, pitch: 0, roll: 0, turboP: 0, lastUp: false };
 
   // ---------- Partikel (Staub, Rauch, Spritzer) ----------
   const particleGroup = new THREE.Group();
@@ -194,35 +194,72 @@
   // ---------- Kippsteuerung (Handy wie ein Lenkrad drehen) ----------
   const TILT = { on: false, sens: 1, invert: false };
   try { TILT.on = MOBILE && localStorage.getItem('rennspiel-tilt') === '1'; } catch (e) {}
-  let tiltSteer = 0, tiltSeen = false;
+  let tiltSteer = 0, tiltSeen = false, tiltWanted = TILT.on;
   const IOS_DEV = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  window.addEventListener('devicemotion', e => {
-    const g = e.accelerationIncludingGravity;
-    if (!g || g.x == null) return;
-    tiltSeen = true;
-    const ang = (screen.orientation && screen.orientation.angle != null) ? screen.orientation.angle : (window.orientation || 0);
-    // Schwerkraft entlang der langen Bildschirmseite = wie stark das Handy gedreht ist
-    let v = ang === 90 ? g.y : (ang === 270 || ang === -90) ? -g.y : ang === 180 ? -g.x : g.x;
-    if (IOS_DEV) v = -v;          // iPhones melden die Richtung umgekehrt
+  // Bildschirm-Drehung: iPhones melden sie über window.orientation, andere über screen.orientation
+  const screenAngle = () => {
+    let a = typeof window.orientation === 'number' ? window.orientation : (screen.orientation && screen.orientation.angle) || 0;
+    return ((a % 360) + 360) % 360;
+  };
+  function tiltFrom(v) { // v = Schwerkraft entlang der langen Bildschirmseite (m/s²)
     if (TILT.invert) v = -v;
     const deg = Math.asin(Math.max(-1, Math.min(1, v / 9.81))) * 180 / Math.PI;
     const full = 28 / TILT.sens;  // so viel Grad = voller Lenkeinschlag
     const x = Math.abs(deg) < 2.5 ? 0 : (deg - Math.sign(deg) * 2.5) / full; // kleine tote Zone in der Mitte
     tiltSteer = Math.max(-1, Math.min(1, x));
+    const ind = $('tiltInd'); if (ind) ind.style.transform = 'translateX(' + (tiltSteer * 22) + 'px)';
+  }
+  let motionSeen = false;
+  window.addEventListener('devicemotion', e => {
+    const g = e.accelerationIncludingGravity;
+    if (!g || g.x == null) return;
+    tiltSeen = motionSeen = true;
+    const ang = screenAngle();
+    // Schwerkraft entlang der langen Bildschirmseite = wie stark das Handy gedreht ist
+    let v = ang === 90 ? g.y : ang === 270 ? -g.y : ang === 180 ? -g.x : g.x;
+    if (IOS_DEV) v = -v;          // iPhones melden die Richtung umgekehrt
+    tiltFrom(v);
   });
+  // Ersatz, falls ein Handy nur die Lage (deviceorientation) meldet
+  window.addEventListener('deviceorientation', e => {
+    if (motionSeen || e.beta == null) return;
+    tiltSeen = true;
+    const ang = screenAngle(), b = e.beta * Math.PI / 180, gm = (e.gamma || 0) * Math.PI / 180;
+    let v = ang === 90 ? -Math.sin(b) * 9.81 : ang === 270 ? Math.sin(b) * 9.81 : Math.sin(gm) * 9.81;
+    tiltFrom(v);
+  });
+  function tiltStatus(txt) { const s = $('tiltStatus'); if (s) s.textContent = txt; }
   async function setTilt(on) {
+    tiltWanted = on;
     if (on && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      try { if (await DeviceMotionEvent.requestPermission() !== 'granted') on = false; } catch (e) { on = false; }
+      // iPhone: braucht die Erlaubnis für den Bewegungssensor (nur direkt nach einem Antippen möglich)
+      let res = 'denied';
+      try { res = await DeviceMotionEvent.requestPermission(); } catch (e) { res = 'error'; }
+      if (res !== 'granted') {
+        on = false;
+        tiltStatus(res === 'denied' ? 'Sensor nicht erlaubt – in Safari-Einstellungen «Bewegung & Ausrichtung» erlauben' : 'Bitte nochmals auf «Kippen» tippen');
+      }
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') { try { await DeviceOrientationEvent.requestPermission(); } catch (e) {} }
     }
     TILT.on = on;
+    if (on) tiltStatus('Handy wie ein Lenkrad drehen');
     try { localStorage.setItem('rennspiel-tilt', on ? '1' : '0'); } catch (e) {}
     $('touch').classList.toggle('tilt', on);
     document.querySelectorAll('#ctrlMode .seg').forEach(b => b.classList.toggle('sel', (b.dataset.c === 'tilt') === on));
-    if (on) setTimeout(() => { if (!tiltSeen) flash('Kein Lagesensor gefunden', 1.5); }, 1500);
+    $('tiltInd').parentNode.style.display = on ? '' : 'none';
+    if (on) setTimeout(() => { if (!tiltSeen) { tiltStatus('Kein Lagesensor gefunden'); flash('Kein Lagesensor gefunden', 1.5); } }, 1500);
+    else if (!tiltWanted) tiltStatus('');
   }
   document.querySelectorAll('#ctrlMode .seg').forEach(b => b.addEventListener('click', () => setTilt(b.dataset.c === 'tilt')));
   $('ctrlBar').style.display = MOBILE ? '' : 'none';
-  setTimeout(() => setTilt(TILT.on && !IOS_DEV), 0); // iPhone: Erlaubnis muss beim Antippen neu geholt werden
+  setTimeout(() => setTilt(TILT.on && !IOS_DEV), 0);
+  // iPhone: Die Erlaubnis muss nach jedem Neustart wieder bei einem Antippen geholt werden.
+  // War Kippen eingeschaltet, holen wir sie beim ersten Antippen automatisch.
+  if (TILT.on && IOS_DEV) {
+    document.querySelectorAll('#ctrlMode .seg').forEach(b => b.classList.toggle('sel', b.dataset.c === 'tilt'));
+    const askTilt = () => { removeEventListener('touchend', askTilt); if (tiltWanted && !TILT.on) setTilt(true); };
+    addEventListener('touchend', askTilt);
+  }
 
   // ---------- Sound (Motor + Pieptöne) ----------
   let audio = null, muted = false;
@@ -384,7 +421,7 @@
     const N = world.N, i = (N - 3 - Math.floor(slot / 2) * 2 + N) % N, p = world.path[i], t = world.tang[i], n = world.norm[i];
     const side = MP.racing || slot > 0 ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
     car.x = p.x + n.x * side; car.z = p.z + n.z * side; car.angle = Math.atan2(t.z, t.x);
-    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.pitch = 0; car.roll = 0; car.turboP = 0;
+    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.steerIn = 0; car.pitch = 0; car.roll = 0; car.turboP = 0;
     car.y = world.surfaceHeight(car.x, car.z);
     lastIndex = i;
     applyCarToModel();
@@ -526,7 +563,13 @@
     car.lastUp = !!input.up;
     const turboMul = T ? 1 - T.gain * 0.35 + T.gain * car.turboP : 1;
     // Antrieb: Heckantrieb dreht mit Gas in der Kurve stärker ein und rutscht leichter (Drift)
-    const steerIn = (input.right ? 1 : 0) - (input.left ? 1 : 0) || (input.steer || 0);
+    // Weiche Lenkung: der Lenkeinschlag baut sich auf (statt sofort voll), zurück geht es etwas schneller
+    let steerWant = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    if (!steerWant && input.steer != null) steerWant = input.steer; // Kippsteuerung: stufenlos
+    const back = Math.abs(steerWant) < Math.abs(car.steerIn) || steerWant * car.steerIn < 0;
+    const sRate = (back ? 4.5 : 2.6) * (PHYS.steerRate || 1);
+    car.steerIn += clamp(steerWant - car.steerIn, -sRate * dt, sRate * dt);
+    const steerIn = car.steerIn;
     const rwdK = carCfg.drive === 'rwd' && input.up && !M.spin && vF > 12 ? (carCfg.oversteer || 0) * Math.min(1, (vF - 12) / 25) * Math.min(1, Math.abs(steerIn) * 1.5) : 0;
     if (input.up) { if (vF < top) vF += perf.accel * accelFactor(vF, top) * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
     else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
@@ -542,13 +585,12 @@
     car.vz = fz * vF + sz * vS;
 
     // Lenken (bei wenig Grip reagiert das Auto träger)
-    let steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    if (!steer && input.steer != null) steer = input.steer; // Kippsteuerung: stufenlos
+    const steer = car.steerIn;
     car.steerVis += (steer * 0.45 - car.steerVis) * Math.min(1, dt * 10);
     let steerAmt = Math.min(1, Math.abs(vF) / 12) * (0.55 + 0.45 * Math.min(1, grip));
     // Frontantrieb: mit Gas schieben die Vorderräder etwas geradeaus (Untersteuern)
     if (carCfg.drive === 'fwd' && input.up) steerAmt *= 1 - (carCfg.understeer || 0) * Math.min(1, Math.abs(vF) / 45);
-    steerAmt *= 1 + 0.35 * rwdK;
+    steerAmt *= (1 + 0.35 * rwdK) * steerSpeedFactor(vF);
     car.angle += steer * perf.handling * steerAmt * Math.sign(vF) * dt;
 
     car.x += car.vx * dt; car.z += car.vz * dt;

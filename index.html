@@ -64,6 +64,9 @@
 
   /* Rennen */
   :root { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); }
+  #ctrlBar .tiltMeter { display: inline-block; position: relative; width: 56px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.18); margin-left: 8px; vertical-align: middle; }
+  #ctrlBar .tiltMeter i { position: absolute; left: 24px; top: -2px; width: 8px; height: 12px; border-radius: 3px; background: #ffd54a; }
+  #tiltStatus { margin-left: 8px; opacity: .8; font-size: 11px; }
   #hud { top: calc(10px + var(--st)); left: calc(10px + var(--sl)); font-variant-numeric: tabular-nums; line-height: 1.5; font-size: 15px; }
   #hud span.l { display: inline-block; min-width: 70px; color: #ffd54a; font-weight: 600; }
   #help { bottom: calc(10px + var(--sb)); left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .85; white-space: nowrap; }
@@ -232,7 +235,7 @@
     <button id="modeMP">👥 Mit Freunden</button>
   </div>
   <div id="ctrlBar" class="botBar slim" style="display:none">
-    <div><span>🎮 Steuerung</span><div class="segs" id="ctrlMode"><button class="seg sel" data-c="buttons">Knöpfe</button><button class="seg" data-c="tilt">📱 Kippen</button></div></div>
+    <div><span>🎮 Steuerung</span><div class="segs" id="ctrlMode"><button class="seg sel" data-c="buttons">Knöpfe</button><button class="seg" data-c="tilt">📱 Kippen</button></div><span class="tiltMeter" style="display:none"><i id="tiltInd"></i></span><small id="tiltStatus"></small></div>
   </div>
   <div id="steps">
     <button class="tab active"><b>1</b>Fahrer<small id="sumChar"></small></button>

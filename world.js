@@ -18,7 +18,7 @@ window.buildWorld = function (track, theme, Q) {
   const W = track.width, edge = W / 2, CURB = 1.6;
 
   // ---------- 1. Mittellinie der Strasse (weiche Kurve durch die Eckpunkte) ----------
-  const path = [];
+  const path = [], protect = [];
   const P = track.points, n = P.length;
   for (let i = 0; i < n; i++) {
     const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
@@ -28,26 +28,31 @@ window.buildWorld = function (track, theme, Q) {
       const f = k => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
         (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
       path.push({ x: f(0), z: f(1), y: f(2) || 0 });
+      // Punkte mit 4. Wert 1 sind gewollt enge Kurven (Bremskurven): nicht glätten
+      protect.push(!!((P[i][3] && t < 0.7) || (p2[3] && t > 0.3)));
     }
   }
   const N = path.length;
 
-  // Zu enge Kurven automatisch glätten (sonst falten sich Strasse und Randsteine)
+  // Zu enge Kurven automatisch glätten: Normale Kurven bekommen mindestens 'minRadius'
+  // (Standard 40 m), damit man sie flüssig fahren kann. Gewollte Bremskurven (markiert)
+  // werden nur so weit geglättet, dass Strasse und Randsteine sich nicht falten.
   {
-    const minR = edge + 5;
+    const minR = Math.max(edge + 5, track.minRadius != null ? track.minRadius : 40), minTight = edge + 5;
     const radius = i => {
       const a = path[(i - 2 + N) % N], b = path[i], c = path[(i + 2) % N];
       const ab = Math.hypot(b.x - a.x, b.z - a.z), bc = Math.hypot(c.x - b.x, c.z - b.z), ca = Math.hypot(a.x - c.x, a.z - c.z);
       const area = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)) / 2;
       return area < 1e-6 ? 1e9 : ab * bc * ca / (4 * area);
     };
-    for (let it = 0; it < 300; it++) {
+    for (let it = 0; it < 800; it++) {
       const tight = [];
-      for (let i = 0; i < N; i++) if (radius(i) < minR) tight.push(i);
+      for (let i = 0; i < N; i++) if (radius(i) < (protect[i] ? minTight : minR)) tight.push(i);
       if (!tight.length) break;
       const nx = path.map(p => ({ ...p }));
       for (const i of tight) for (let k = -3; k <= 3; k++) {
         const j = (i + k + N) % N, a = path[(j - 1 + N) % N], b = path[(j + 1) % N];
+        if (protect[j] && !protect[i]) continue;
         nx[j].x = path[j].x * 0.5 + (a.x + b.x) / 4;
         nx[j].z = path[j].z * 0.5 + (a.z + b.z) / 4;
       }
