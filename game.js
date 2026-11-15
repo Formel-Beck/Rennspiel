@@ -276,7 +276,7 @@
   try { musicOn = localStorage.getItem('rennspiel-music') !== '0'; } catch (e) {}
   // Musik: im Menü ein ruhiger, anregender Groove, im Rennen leiser (Motor soll man gut hören)
   const MUSIC_ENABLED = true;
-  const MUSIC_LEVEL = { menu: 0.45, race: 0.4 };
+  const MUSIC_LEVEL = { menu: 0.45, race: 0.36 };
   function startMusic() {
     if (!MUSIC_ENABLED || !audio || muted || !musicOn) return;
     Music.setVolume(SOUND.musicVol);
