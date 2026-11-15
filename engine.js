@@ -17,6 +17,7 @@ window.EngineSound = function (ctx, out, opts) {
   //  induct   = Ansauggeräusch unter Last, crackle = Knallen beim Gaswegnehmen
   //  spool    = leises Turbo-Pfeifen bei modernen Turbomotoren
   opts = Object.assign({ cyl: 4, idle: 850, redline: 6800, rough: 0.2, body: 80, bright: 1, sub: 0.3, induct: 0.3, crackle: 0, spool: 0, pitch: 1 }, opts || {});
+  const DEEP = 0.78; // alles etwas tiefer abspielen (klingt satter)
   const sr = ctx.sampleRate, BASE_RPM = 1000, CYCLES = 8;
   // Ein Arbeitsspiel (2 Umdrehungen) bei 1000 U/min dauert 0.12 s, darin zündet jeder Zylinder einmal
   const cycleLen = sr * 120 / BASE_RPM, len = Math.floor(cycleLen * CYCLES), per = cycleLen / opts.cyl;
@@ -26,7 +27,7 @@ window.EngineSound = function (ctx, out, opts) {
   for (let k = 0; k < CYCLES; k++) for (let c = 0; c < opts.cyl; c++) {
     const start = Math.floor((k * opts.cyl + c) * per + (Math.random() - 0.5) * per * 0.05 * (1 + opts.rough * 3));
     const amp = cylAmp[c] * (1 + (Math.random() - 0.5) * opts.rough * 0.4);
-    const f1 = cylF[c], f2 = f1 * 2.3;
+    const f1 = cylF[c] * 0.8, f2 = f1 * 2.1;
     const dec = 1000 / per * 2.2;                                          // Abklingen passend zum Zündabstand
     for (let i = 0; i < per * 1.6; i++) {
       const t = i / sr, idx = (start + i + len) % len;
@@ -48,13 +49,13 @@ window.EngineSound = function (ctx, out, opts) {
   for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * (1.6 + opts.rough * 2)); }
   shaper.curve = curve;
   const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.Q.value = 0.9;
-  const bass = ctx.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 160; bass.gain.value = 8;
-  const bodyEq = ctx.createBiquadFilter(); bodyEq.type = 'peaking'; bodyEq.frequency.value = 120; bodyEq.Q.value = 1; bodyEq.gain.value = 4;
+  const bass = ctx.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 180; bass.gain.value = 12;
+  const bodyEq = ctx.createBiquadFilter(); bodyEq.type = 'peaking'; bodyEq.frequency.value = 95; bodyEq.Q.value = 0.9; bodyEq.gain.value = 6;
   // Tiefbass: halbe und ganze Zündfrequenz (läuft durch die Verzerrung, damit man ihn auch am Handy hört)
   const sub = ctx.createOscillator(); sub.type = 'sine';
   const sub2 = ctx.createOscillator(); sub2.type = 'triangle';
-  const subGain = ctx.createGain(); subGain.gain.value = opts.sub;
-  const sub2Gain = ctx.createGain(); sub2Gain.gain.value = opts.sub * 0.5;
+  const subGain = ctx.createGain(); subGain.gain.value = opts.sub + 0.15;
+  const sub2Gain = ctx.createGain(); sub2Gain.gain.value = opts.sub * 0.5 + 0.08;
   const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.12;
   const master = ctx.createGain(); master.gain.value = 0;
   src.connect(shaper);
@@ -77,9 +78,9 @@ window.EngineSound = function (ctx, out, opts) {
   function blowoff(p) {
     const n = ctx.createBufferSource(); n.buffer = noiseBuf;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 0.9;
-    const gg = ctx.createGain(), t = ctx.currentTime, v = 0.05 * p * lastVol;
+    const gg = ctx.createGain(), t = ctx.currentTime, v = 0.03 * p * lastVol;
     gg.gain.setValueAtTime(0, t); gg.gain.linearRampToValueAtTime(v, t + 0.02); gg.gain.exponentialRampToValueAtTime(0.0005, t + 0.45);
-    bp.frequency.setValueAtTime(3200, t); bp.frequency.exponentialRampToValueAtTime(1400, t + 0.45);
+    bp.frequency.setValueAtTime(1900, t); bp.frequency.exponentialRampToValueAtTime(800, t + 0.45);
     n.connect(bp).connect(gg).connect(out); n.start(t, Math.random() * 0.4); n.stop(t + 0.5);
   }
   // Knallen aus dem Auspuff (Fehlzündungen im Schiebebetrieb)
@@ -98,14 +99,15 @@ window.EngineSound = function (ctx, out, opts) {
   //   lo/hi = Tempo-Bereich des Gangs (Anteil vom Höchsttempo)
   //   up    = ab hier wird hochgeschaltet, down = darunter runtergeschaltet
   const GEARS = opts.long ? [
-    // Lange, schnelle Strecken (Abenteuer-Rallye): 5 Gänge, der letzte ist lang.
-    // Bei normaler Höchstgeschwindigkeit dreht der Motor hoch, aber nicht in den
-    // Begrenzer – der greift nur, wenn ein Boost über das Höchsttempo schiebt.
-    { lo: 0.0,  hi: 0.26, up: 0.23, down: -1 },
-    { lo: 0.17, hi: 0.44, up: 0.40, down: 0.15 },
-    { lo: 0.34, hi: 0.62, up: 0.58, down: 0.32 },
-    { lo: 0.52, hi: 0.82, up: 0.78, down: 0.50 },
-    { lo: 0.70, hi: 1.10, up: 99,   down: 0.68 }
+    // Lange, schnelle Strecken (Abenteuer-Rallye): 6 Gänge. Bei Höchsttempo dreht der
+    // Motor im 6. Gang mittelhoch. Der Begrenzer kommt erst bei rund 130 % Tempo
+    // (Boost-Feld, Turbo-Item, steile Abfahrt).
+    { lo: 0.0,  hi: 0.22, up: 0.19, down: -1 },
+    { lo: 0.14, hi: 0.38, up: 0.34, down: 0.12 },
+    { lo: 0.28, hi: 0.54, up: 0.50, down: 0.26 },
+    { lo: 0.42, hi: 0.72, up: 0.67, down: 0.40 },
+    { lo: 0.56, hi: 0.92, up: 0.87, down: 0.54 },
+    { lo: 0.72, hi: 1.34, up: 99,   down: 0.70 }
   ] : [
     { lo: 0.0,  hi: 0.42, up: 0.38, down: -1 },
     { lo: 0.3,  hi: 0.78, up: 0.72, down: 0.28 },
@@ -121,7 +123,7 @@ window.EngineSound = function (ctx, out, opts) {
   // slip = seitliches Rutschen (m/s), slope = Steigung (-1 bis 1)
   function update(dt, speed, maxSpeed, throttle, active, slip, slope, volume) {
     lastVol = volume == null ? 1 : volume;
-    const sf = Math.min(1.1, Math.abs(speed) / maxSpeed);
+    const sf = Math.min(opts.long ? 1.4 : 1.1, Math.abs(speed) / maxSpeed);
     // Schalten (mit Abstand zwischen hoch und runter, damit er nicht hin und her springt)
     if (shiftT <= 0) {
       if (sf > GEARS[gear].up && gear < GEARS.length - 1) { gear++; shiftT = 0.22; }
@@ -150,15 +152,15 @@ window.EngineSound = function (ctx, out, opts) {
     const cut = cutT > 0;                                       // Zündung gerade unterbrochen
     const now = ctx.currentTime;
     // interne Drehzahl (0.12 = Leerlauf … 0.97 = Begrenzer) → echte U/min
-    const realRpm = (opts.idle + (opts.redline - opts.idle) * Math.max(0, (rpm - 0.12) / 0.85)) * opts.pitch;
+    const realRpm = (opts.idle + (opts.redline - opts.idle) * Math.max(0, (rpm - 0.12) / 0.85)) * opts.pitch * DEEP;
     const fire = realRpm * opts.cyl / 120;                     // Zündfrequenz (Hz)
     src.playbackRate.setTargetAtTime(realRpm / BASE_RPM, now, 0.02);
     sub.frequency.setTargetAtTime(fire * 0.5, now, 0.02);
     sub2.frequency.setTargetAtTime(fire, now, 0.02);
     const open = shifting || cut ? 0 : throttle * (700 + load * 450);
-    filter.frequency.setTargetAtTime((260 + fire * 3.2 + open) * opts.bright, now, cut ? 0.008 : 0.04);
+    filter.frequency.setTargetAtTime((220 + fire * 2.8 + open * 0.85) * opts.bright, now, cut ? 0.008 : 0.04);
     let vol = shifting ? 0.08 : 0.11 + rpm * 0.06 + throttle * 0.05 + load * 0.02;
-    vol *= 0.7 * (opts.gain || 1);
+    vol *= 0.5 * (opts.gain || 1);
     if (cut) vol *= 0.35;
     const v = active ? vol * lastVol : 0;
     master.gain.setTargetAtTime(v, now, active ? (cut || limiting ? 0.006 : 0.04) : 0.3);
@@ -167,8 +169,8 @@ window.EngineSound = function (ctx, out, opts) {
     inGain.gain.setTargetAtTime(active && throttle && !cut && !shifting ? opts.induct * (0.2 + rpm) * 0.05 * lastVol : 0, now, 0.05);
     // Turbo-Pfeifen: alter Turbo (Ladedruck aus dem Spiel) oder moderner Turbo (leise, mit Gas und Drehzahl)
     const tp = Math.max(turboP, opts.spool ? throttle * rpm * opts.spool : 0);
-    whistle.frequency.setTargetAtTime(1300 + 2600 * tp, now, 0.05);
-    whistleGain.gain.setTargetAtTime(active && (turboOn || opts.spool) && throttle ? tp * tp * (opts.spool ? 0.08 : 0.18) * lastVol : 0, now, throttle ? 0.08 : 0.03);
+    whistle.frequency.setTargetAtTime(650 + 1150 * tp, now, 0.06);
+    whistleGain.gain.setTargetAtTime(active && (turboOn || opts.spool) && throttle ? tp * tp * (opts.spool ? 0.035 : 0.05) * lastVol : 0, now, throttle ? 0.08 : 0.03);
     // Knallen: kurz nach dem Gaswegnehmen bei hoher Drehzahl
     if (opts.crackle && active) {
       if (lastThrottle && !throttle && rpm > 0.55) popT = 0.5 + opts.crackle * 0.5;
