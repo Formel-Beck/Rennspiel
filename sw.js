@@ -8,13 +8,14 @@
 //  Neue Dateien auch in die Liste FILES eintragen!
 //  Alle Dateien liegen im selben Ordner (keine Unterordner).
 // =====================================================
-const VERSION = 'rennspiel-v19';
+const VERSION = 'rennspiel-v21';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png', 'favicon.png',
   'three.min.js', 'GLTFLoader.js',
   'themes.js', 'tracks.js', 'cars.js', 'characters.js', 'surfaces.js',
-  'props.js', 'world.js', 'drivers.js', 'engine.js', 'comic.js', 'car.js', 'mqtt.min.js', 'mp.js', 'music.js', 'leaderboard.js', 'items.js', 'bots.js', 'devmode.js', 'game.js',
+  'props.js', 'world.js', 'drivers.js', 'engine.js', 'comic.js', 'ads.js',
+  'ad01.jpg', 'ad02.jpg', 'ad03.jpg', 'ad04.jpg', 'ad05.jpg', 'ad06.jpg', 'ad07.jpg', 'ad08.jpg', 'ad09.jpg', 'ad10.jpg', 'ad11.jpg', 'ad12.jpg', 'ad13.jpg', 'ad14.jpg', 'ad15.jpg', 'ad16.jpg', 'ad17.jpg', 'ad18.jpg', 'ad19.jpg', 'car.js', 'mqtt.min.js', 'mp.js', 'music.js', 'leaderboard.js', 'items.js', 'bots.js', 'devmode.js', 'game.js',
   'beck.glb', 'locken.glb'
 ];
 

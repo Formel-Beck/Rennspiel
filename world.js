@@ -521,6 +521,89 @@ window.buildWorld = function (track, theme, Q) {
   }
   function world_W_len() { return 34; }
 
+  // ---------- Werbetafeln am Streckenrand ----------
+  // Bilder aus ads.js, pro Strecke in fester Zufalls-Reihenfolge (alle Spieler sehen dieselben Tafeln)
+  const reserved = []; // dort keine Bäume/Deko
+  if (window.ADS && ADS.length) {
+    let s2 = 11; for (const ch of track.id) s2 = (s2 * 31 + ch.charCodeAt(0)) % 2147483647;
+    const r2 = () => (s2 = (s2 * 16807) % 2147483647) / 2147483647;
+    const deck = [];
+    const nextAd = () => {
+      if (!deck.length) {
+        const d = ADS.map((a, i) => i);
+        for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(r2() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+        if (d[d.length - 1] === lastAd && d.length > 1) [d[0], d[d.length - 1]] = [d[d.length - 1], d[0]]; // nicht zweimal dasselbe
+        deck.push(...d);
+      }
+      return (lastAd = deck.pop());
+    };
+    let lastAd = -1;
+    const loader = new THREE.TextureLoader(), adMats = {};
+    const adMat = i => adMats[i] || (adMats[i] = new THREE.MeshBasicMaterial({ map: Object.assign(loader.load(ADS[i].f), { anisotropy: 4 }) }));
+    // Aussehen je nach Strecke
+    const wood = ['forest', 'mountains', 'beach', 'desert', 'snow'].includes(track.theme);
+    const frameMat = Props.M(wood ? '#6d4a2c' : theme.night ? '#2a2e38' : '#5b6370');
+    const postMat = Props.M(wood ? '#5a3b22' : '#4a505a');
+    const neonMat = theme.night ? new THREE.MeshBasicMaterial({ color: '#ff2bd6' }) : null;
+    const segLen = totalLen / N;
+    const spacing = clamp(totalLen / 40, 36, 140);           // Abstand der Tafeln in Metern
+    const stepI = Math.max(2, Math.round(spacing / segLen));
+    const near = (i, j, m) => { const d = Math.abs(i - j); return Math.min(d, N - d) <= m / segLen; };
+    const tribI = Math.min(Math.round(28 / segLen), Math.floor(N * 0.05));
+    const crowdI = (track.spectators || [0.12, 0.27, 0.42, 0.58, 0.73, 0.88]).map(f => Math.floor(f * N) % N);
+    let alt = 1;
+    for (let i = Math.round(stepI * 0.6); i < N - 3; i += stepI) {
+      if (near(i, 0, 25) || near(i, tribI, 30) || crowdI.some(c => near(i, c, 14))) continue;
+      let tun = false; for (let k = -10; k <= 10; k++) if (inTunnel[(i + k + N) % N]) tun = true;
+      if (tun) continue;
+      // Kurve? Dann aussen hinstellen, dort sieht man sie am besten
+      const ta = tang[(i - 4 + N) % N], tb = tang[(i + 4) % N];
+      const turn = ta.x * tb.z - ta.z * tb.x;
+      alt = -alt;
+      const sides = Math.abs(turn) > 0.04 ? [turn > 0 ? -1 : 1] : [alt, -alt];
+      if (!deck.length) { const prev = lastAd; nextAd(); deck.push(lastAd); lastAd = prev; } // nächstes Bild anschauen, noch nicht verbrauchen
+      const ad = ADS[deck[deck.length - 1]];
+      const a = ad.a, w = a >= 1 ? Math.min(11, 5.8 * a) : 7 * a, h = a >= 1 ? w / a : 7;
+      const p = path[i], n = norm[i], t = tang[i];
+      let placed = false;
+      for (const sg of sides) {
+        const off = edge + CURB + 4.5 + w * 0.2;
+        const cx = p.x + n.x * sg * off, cz = p.z + n.z * sg * off;
+        // zur Strasse und zu den ankommenden Autos gedreht
+        let fx = -n.x * sg * 0.8 - t.x * 0.6, fz = -n.z * sg * 0.8 - t.z * 0.6; const fl = Math.hypot(fx, fz); fx /= fl; fz /= fl;
+        const ux = fz, uz = -fx; // entlang der Tafel
+        const ends = [[cx + ux * w / 2, cz + uz * w / 2], [cx - ux * w / 2, cz - uz * w / 2], [cx, cz]];
+        let ok = true, gy = Infinity;
+        for (const [x, z] of ends) {
+          if (roadInfo(x, z).dist < edge + CURB + 2) { ok = false; break; }
+          if (rivers.length) { const rv = riverInfo(x, z); if (rv && rv.d < rv.w / 2 + 3) { ok = false; break; } }
+          if (theme.shoreZ != null && z > theme.shoreZ - 8) { ok = false; break; }
+          const y = terrainHeight(x, z); if (Math.abs(y - p.y) > 7) { ok = false; break; }
+          gy = Math.min(gy, y);
+        }
+        if (!ok || reserved.some(b => Math.hypot(b.x - cx, b.z - cz) < b.r + w / 2)) continue;
+        const idx = deck.pop(); lastAd = idx;
+        const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = Math.atan2(fx, fz);
+        const bottom = Math.max(gy, p.y) + 2.0, cy = bottom + h / 2;
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, h + 0.5, 0.3), frameMat);
+        frame.position.y = cy; frame.castShadow = Q.shadows; g.add(frame);
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), adMat(idx));
+        panel.position.set(0, cy, 0.16); panel.userData.noOutline = true; g.add(panel);
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), frameMat); back.rotation.y = Math.PI; back.position.set(0, cy, -0.16); g.add(back);
+        const ph = bottom - gy + 0.6;
+        for (const px of [-w * 0.33, w * 0.33]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, ph, 0.35), postMat);
+          post.position.set(px, gy - 0.6 + ph / 2, -0.05); post.castShadow = Q.shadows; g.add(post);
+          addCollider({ x: cx + ux * px, z: cz + uz * px, r: 0.45 });
+        }
+        if (neonMat) { const nb = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.12, 0.12), neonMat); nb.position.set(0, bottom - 0.35, 0.18); g.add(nb); }
+        scene.add(g);
+        reserved.push({ x: cx, z: cz, r: w / 2 + 3 });
+        placed = true; break;
+      }
+    }
+  }
+
   // ---------- 7. Deko verteilen ----------
   function addInstances(parts, items) {
     if (!items.length) return;
@@ -582,6 +665,7 @@ window.buildWorld = function (track, theme, Q) {
         if (Math.abs(x) > HX - 15 || Math.abs(z) > HZ - 15) continue;
       } else { x = (rnd() * 2 - 1) * (HX - 15); z = (rnd() * 2 - 1) * (HZ - 15); }
       if (rivers.length) { const rv = riverInfo(x, z); if (rv && rv.d < rv.w / 2 + 4) continue; }
+      if (reserved.some(b => Math.hypot(b.x - x, b.z - z) < b.r)) continue; // Platz einer Werbetafel
       if (theme.shoreZ != null) {
         if (def.nearShore) { if (z < theme.shoreZ - 24 || z > theme.shoreZ - 6) continue; }
         else if (z > theme.shoreZ - 8) continue;
