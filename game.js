@@ -96,7 +96,7 @@
     computePerf();
     applyCarToModel();
   }
-  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, pitch: 0, roll: 0 };
+  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, pitch: 0, roll: 0, turboP: 0, lastUp: false };
 
   // ---------- Partikel (Staub, Rauch, Spritzer) ----------
   const particleGroup = new THREE.Group();
@@ -245,6 +245,7 @@
     if (!audio) return;
     // Motor nur während Countdown und Rennen – im Ziel geht er aus
     const active = !muted && !document.hidden && (phase === 'race' || phase === 'countdown');
+    if (audio.engine.setTurbo) audio.engine.setTurbo(carCfg.turbo ? car.turboP : 0, active && keys.up);
     audio.engine.update(dt, car.speed, perf.maxSpeed, active && keys.up ? 1 : 0, active && SOUND.engineVol > 0, car.slip, Math.sin(car.pitch), SOUND.engineVol);
   }
   // App verlassen oder Bildschirm aus: alle Töne sofort anhalten
@@ -374,7 +375,7 @@
     const N = world.N, i = (N - 3 - Math.floor(slot / 2) * 2 + N) % N, p = world.path[i], t = world.tang[i], n = world.norm[i];
     const side = MP.racing || slot > 0 ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
     car.x = p.x + n.x * side; car.z = p.z + n.z * side; car.angle = Math.atan2(t.z, t.x);
-    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.pitch = 0; car.roll = 0;
+    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.pitch = 0; car.roll = 0; car.turboP = 0;
     car.y = world.surfaceHeight(car.x, car.z);
     lastIndex = i;
     applyCarToModel();
@@ -506,7 +507,19 @@
     if (M.spin) vF *= Math.exp(-1.6 * dt);
 
     const traction = clamp(grip * 1.6, 0.3, 1); // wenig Grip = Räder drehen durch, man kommt schlechter vom Fleck
-    if (input.up) { if (vF < top) vF += perf.accel * Math.min(1, sf.accel * off) * traction * dt; }
+    // Turbo: Der Ladedruck baut sich mit Gas langsam auf (Turboloch), dann schiebt er kräftig
+    const T = carCfg.turbo;
+    if (T) {
+      const want = input.up && vF > 3 ? 1 : 0;
+      car.turboP += (want - car.turboP) * Math.min(1, dt * (want ? 1 / T.lag : 5));
+      if (car.lastUp && !input.up && car.turboP > 0.55 && audio && audio.engine.blowoff) audio.engine.blowoff(car.turboP); // "Pssscht"
+    }
+    car.lastUp = !!input.up;
+    const turboMul = T ? 1 - T.gain * 0.35 + T.gain * car.turboP : 1;
+    // Antrieb: Heckantrieb dreht mit Gas in der Kurve stärker ein und rutscht leichter (Drift)
+    const steerIn = (input.right ? 1 : 0) - (input.left ? 1 : 0) || (input.steer || 0);
+    const rwdK = carCfg.drive === 'rwd' && input.up && !M.spin && vF > 12 ? (carCfg.oversteer || 0) * Math.min(1, (vF - 12) / 25) * Math.min(1, Math.abs(steerIn) * 1.5) : 0;
+    if (input.up) { if (vF < top) vF += perf.accel * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
     else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
     else { const fr = 14 * dt; vF = Math.abs(vF) < fr ? 0 : vF - Math.sign(vF) * fr; }
     vF -= 9.81 * slope * PHYS.gravity * dt;                 // Schwerkraft
@@ -514,7 +527,7 @@
     if (vF < -15) vF = -15;
 
     // Seitliches Rutschen wird je nach Grip abgebaut
-    vS *= Math.exp(-grip * PHYS.slide * dt);
+    vS *= Math.exp(-grip * (1 - 0.4 * rwdK) * PHYS.slide * dt);
 
     car.vx = fx * vF + sx * vS;
     car.vz = fz * vF + sz * vS;
@@ -523,7 +536,10 @@
     let steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (!steer && input.steer != null) steer = input.steer; // Kippsteuerung: stufenlos
     car.steerVis += (steer * 0.45 - car.steerVis) * Math.min(1, dt * 10);
-    const steerAmt = Math.min(1, Math.abs(vF) / 12) * (0.55 + 0.45 * Math.min(1, grip));
+    let steerAmt = Math.min(1, Math.abs(vF) / 12) * (0.55 + 0.45 * Math.min(1, grip));
+    // Frontantrieb: mit Gas schieben die Vorderräder etwas geradeaus (Untersteuern)
+    if (carCfg.drive === 'fwd' && input.up) steerAmt *= 1 - (carCfg.understeer || 0) * Math.min(1, Math.abs(vF) / 45);
+    steerAmt *= 1 + 0.35 * rwdK;
     car.angle += steer * perf.handling * steerAmt * Math.sign(vF) * dt;
 
     car.x += car.vx * dt; car.z += car.vz * dt;

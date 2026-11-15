@@ -62,127 +62,159 @@ window.buildCarModel = function (cfg, char) {
     }
   }
 
+  // Seitenprofil (x vorne, y oben) als Körper mit Tiefe 'depth' (z), mittig
+  function profile(pts, depth, mat, bevel) {
+    const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.length === 4) sh.absarc(p[0], p[1], p[2], Math.PI, 0, true); // Radkasten: [x, y, Radius, 'arc']
+      else sh.lineTo(p[0], p[1]);
+    }
+    const b = bevel == null ? 0.07 : bevel;
+    const g = new THREE.ExtrudeGeometry(sh, { depth: depth - 2 * b, bevelEnabled: b > 0, bevelThickness: b, bevelSize: b * 0.8, bevelSegments: 3, curveSegments: 14 });
+    g.translate(0, 0, -(depth - 2 * b) / 2);
+    return add(g, mat);
+  }
+  // Felgen mit Speichen: 'modern' (5 Doppelspeichen), 'mesh' (viele dünne), 'turbine' (3 breite)
+  const darkRim = new THREE.MeshPhongMaterial({ color: 0x3a3f47, shininess: 70, specular: 0x888888 });
+  function rims(style, mat) {
+    const r0 = wheels.length - 4;
+    for (let k = r0; k < wheels.length; k++) {
+      const wg = wheels[k], tire = wg.children[0], r = tire.geometry.parameters.radiusTop, w = tire.geometry.parameters.height;
+      wg.remove(wg.children[1]);                                  // alte, glatte Felge weg
+      const rr = r * 0.66;
+      const disc = new THREE.CylinderGeometry(rr, rr, w * 0.7, 20); disc.rotateX(Math.PI / 2);
+      wg.add(new THREE.Mesh(disc, black));                        // dunkler Felgengrund
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr * 0.97, 0.035, 6, 24), mat);
+      const n = style === 'mesh' ? 10 : style === 'turbine' ? 3 : 5;
+      for (const side of [-1, 1]) {
+        const zz = side * (w / 2 - 0.01);
+        const rg = ring.clone(); rg.position.z = zz; wg.add(rg);
+        for (let i = 0; i < n; i++) {
+          const a = i / n * Math.PI * 2;
+          const make = (len, thick, off) => {
+            const sp = new THREE.Mesh(new THREE.BoxGeometry(len, thick, 0.04), mat);
+            sp.position.set(Math.cos(a + off) * len / 2, Math.sin(a + off) * len / 2, zz); sp.rotation.z = a + off; wg.add(sp);
+          };
+          if (style === 'modern') { make(rr * 0.95, 0.05, 0.12); make(rr * 0.95, 0.05, -0.12); }
+          else if (style === 'mesh') make(rr * 0.95, 0.035, 0);
+          else make(rr * 0.9, 0.2, 0);
+        }
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 10), mat); cap.rotation.x = Math.PI / 2; cap.position.z = zz; wg.add(cap);
+      }
+    }
+  }
+  function mirrors(x, y, z) {
+    for (const s of [-1, 1]) { box(0.2, 0.12, 0.16, paint, x, y, s * z); box(0.06, 0.04, 0.1, black, x + 0.05, y - 0.08, s * (z - 0.08)); }
+  }
+  function label(text, x, y, z, w, h, color) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+    const cx = c.getContext('2d'); cx.fillStyle = color || '#fff';
+    cx.font = 'italic bold 46px system-ui, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(text, 128, 34);
+    const mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+    for (const sgn of [-1, 1]) {
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+      d.position.set(x, y, sgn * z); if (sgn < 0) d.rotation.y = Math.PI; group.add(d);
+    }
+  }
+  const glass = new THREE.MeshPhongMaterial({ color: 0x8fb6d6, shininess: 150, specular: 0xffffff, transparent: true, opacity: 0.38, depthWrite: false });
+  const tint = new THREE.MeshPhongMaterial({ color: 0x223040, shininess: 120, specular: 0xffffff }); // getönte Heckscheibe/Kanten
+  const amber = new THREE.MeshBasicMaterial({ color: 0xffa726 });
+  const chrome = metal;
+
   const builders = {
-    // ---------- Sport-Cabrio ----------
-    sport() {
-      const body = new THREE.Shape();
-      body.moveTo(-2.25, 0.4); body.lineTo(-1.98, 0.4);
-      body.absarc(-1.4, 0.4, 0.58, Math.PI, 0, true); body.lineTo(0.82, 0.4);
-      body.absarc(1.4, 0.4, 0.58, Math.PI, 0, true); body.lineTo(2.2, 0.4);
-      body.lineTo(2.36, 0.62); body.lineTo(2.28, 0.86); body.lineTo(0.9, 1.06); body.lineTo(-1.85, 1.12); body.lineTo(-2.3, 1.02); body.lineTo(-2.25, 0.4);
-      const g = new THREE.ExtrudeGeometry(body, { depth: 1.8, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 2, curveSegments: 10 });
-      g.translate(0, 0, -0.9); add(g, paint);
-      const ws = box(0.04, 0.5, 1.5, glassClear, 0.55, 1.32, 0, 0.55); ws.castShadow = false;
-      box(0.06, 0.06, 1.55, black, 0.68, 1.53, 0, 0.55);
-      box(0.75, 0.12, 1.1, black, -0.55, 1.08, 0); box(0.12, 0.42, 1.1, black, -0.98, 1.3, 0);
-      steeringWheel(0.02, 1.45);
-      for (const z of [-0.62, 0.62]) tube([-1.2, 1.08, z], [-1.2, 1.82, z], 0.045, black);
-      tube([-1.2, 1.82, -0.62], [-1.2, 1.82, 0.62], 0.045, black);
-      numberDecal(-0.1, 0.74, 0.975, 0.62);
-      box(0.55, 0.07, 1.9, black, -2.05, 1.42, 0);
-      box(0.08, 0.32, 0.08, black, -2.0, 1.24, 0.6); box(0.08, 0.32, 0.08, black, -2.0, 1.24, -0.6);
-      for (const z of [0.6, -0.6]) { box(0.06, 0.16, 0.42, headMat, 2.33, 0.74, z); box(0.06, 0.14, 0.45, tailMat, -2.33, 0.86, z * 1.03); }
-      box(0.05, 0.14, 0.8, black, 2.38, 0.52, 0);
-      for (const [x, z, f] of [[1.4, 0.88, 1], [1.4, -0.88, 1], [-1.4, 0.88, 0], [-1.4, -0.88, 0]]) wheel(x, z, 0.45, 0.34, f);
-      return { seat: [-0.55, 1.1, 1.25], wheelR: 0.45, hoodCam: [0.85, 1.55], collide: { r: 1.05, off: 1.25 } };
-    },
-
-    // ---------- Formel-Renner ----------
-    formula() {
-      box(2.3, 0.4, 0.78, paint, -0.25, 0.55, 0);                       // Monocoque
-      add(new THREE.CylinderGeometry(0.1, 0.32, 1.9, 10), paint, 1.85, 0.5, 0, 0, 0, -Math.PI / 2); // Nase
-      for (const z of [-0.6, 0.6]) box(1.4, 0.34, 0.42, paint, -0.45, 0.5, z); // Seitenkästen
-      add(new THREE.CylinderGeometry(0.12, 0.36, 1.5, 10), paint, -1.35, 0.72, 0, 0, 0, Math.PI / 2); // Motorabdeckung
-      box(0.45, 0.4, 0.32, paint, -0.95, 1.05, 0);                       // Lufteinlass
-      box(0.08, 0.3, 0.34, black, -0.75, 1.05, 0);
-      box(0.4, 0.05, 2.05, black, 2.6, 0.22, 0);                         // Frontflügel
-      for (const z of [-1.02, 1.02]) box(0.5, 0.22, 0.04, paint, 2.6, 0.3, z);
-      box(0.5, 0.06, 1.7, black, -2.2, 1.3, 0); box(0.5, 0.06, 1.7, black, -2.15, 1.12, 0); // Heckflügel
-      for (const z of [-0.86, 0.86]) box(0.62, 0.55, 0.04, paint, -2.18, 1.1, z);
-      box(0.12, 0.6, 0.12, black, -1.95, 0.85, 0);
-      tube([0.3, 0.78, -0.35], [0.3, 1.18, 0], 0.035, black); tube([0.3, 0.78, 0.35], [0.3, 1.18, 0], 0.035, black); // Halo
-      tube([0.3, 1.18, 0], [-0.55, 1.12, 0], 0.035, black);
-      steeringWheel(0.12, 0.88, 0.13);
-      box(0.04, 0.1, 0.3, tailMat, -2.3, 0.62, 0);
-      numberDecal(0.6, 0.62, 0.395, 0.34);
-      for (const [x, z, r, w, f] of [[1.6, 0.98, 0.38, 0.32, 1], [1.6, -0.98, 0.38, 0.32, 1], [-1.45, 0.98, 0.46, 0.44, 0], [-1.45, -0.98, 0.46, 0.44, 0]]) {
-        wheel(x, z, r, w, f, 0.65);
-        tube([x, r, z * 0.42], [x, r, z * 0.82], 0.03, black); // Querlenker
+    // ---------- Modernes Kompakt-Coupé ----------
+    coupe() {
+      profile([[-2.22, 0.36], [-1.88, 0.36], [-1.35, 0.44, 0.53, 'arc'], [0.82, 0.36], [1.35, 0.44, 0.53, 'arc'], [2.12, 0.36],
+        [2.3, 0.48], [2.33, 0.68], [2.18, 0.84], [1.35, 0.94], [0.72, 1.0], [-1.55, 1.02], [-2.05, 1.0], [-2.24, 0.9], [-2.27, 0.56]], 1.82, paint, 0.09);
+      profile([[0.8, 0.98], [0.02, 1.4], [-0.75, 1.43], [-1.3, 1.3], [-1.9, 1.02]], 1.5, glass, 0.06).castShadow = false; // Glasdach
+      profile([[0.1, 1.36], [0.0, 1.45], [-0.75, 1.48], [-1.32, 1.34], [-1.25, 1.28], [-0.72, 1.4], [0.02, 1.36]], 1.46, paint, 0.03);     // Dach
+      for (const z of [-0.7, 0.7]) {
+        tube([0.78, 1.0, z * 1.02], [0.04, 1.39, z * 0.98], 0.045, paint);                     // A-Säule
+        profile([[-1.0, 1.04], [-1.2, 1.32], [-1.42, 1.25], [-1.85, 1.04]], 0.12, paint, 0.02).position.z = z * 1.03; // C-Säule
       }
-      return { seat: [-0.35, 0.52, 1.12], wheelR: 0.42, hoodCam: [0.35, 1.25], collide: { r: 0.95, off: 1.4 } };
-    },
-
-    // ---------- Go-Kart ----------
-    kart() {
-      box(2.0, 0.07, 1.05, metal, 0, 0.22, 0);                           // Rahmen
-      box(0.55, 0.28, 1.0, paint, 0.98, 0.32, 0, 0.25);                  // Frontverkleidung
-      for (const z of [-0.6, 0.6]) box(1.0, 0.22, 0.16, paint, 0, 0.32, z); // Seitenkästen
-      box(0.12, 0.18, 1.3, paint, -1.05, 0.3, 0);                         // Heckstossstange
-      box(0.55, 0.12, 0.6, black, -0.3, 0.33, 0);                         // Sitz
-      box(0.12, 0.55, 0.6, black, -0.58, 0.58, 0, 0.25);
-      tube([0.65, 0.25, 0], [0.32, 0.72, 0], 0.03, metal);                // Lenksäule
-      steeringWheel(0.3, 0.74, 0.15);
-      box(0.32, 0.3, 0.3, metal, -0.72, 0.42, 0.35);                      // Motor
-      add(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8), black, -0.95, 0.5, 0.35, 0, 0, Math.PI / 2);
-      numberDecal(1.0, 0.36, 0.51, 0.26);
-      for (const [x, z, r, w, f] of [[0.75, 0.62, 0.25, 0.2, 1], [0.75, -0.62, 0.25, 0.2, 1], [-0.72, 0.66, 0.28, 0.3, 0], [-0.72, -0.66, 0.28, 0.3, 0]]) wheel(x, z, r, w, f, 0.55);
-      return { seat: [-0.28, 0.38, 1.12], wheelR: 0.27, hoodCam: [0.55, 1.05], collide: { r: 0.75, off: 0.7 } };
-    },
-
-    // ---------- Monstertruck ----------
-    monster() {
-      box(3.0, 0.25, 0.9, black, 0, 1.05, 0);                            // Rahmen
-      box(3.7, 0.55, 2.0, paint, 0, 1.55, 0);                            // Karosserie
-      box(1.25, 0.25, 1.9, paint, 1.15, 1.92, 0, -0.08);                 // Motorhaube
-      box(0.2, 0.3, 1.6, black, 1.88, 1.55, 0);                          // Kühlergrill
-      for (const z of [0.7, -0.7]) { box(0.06, 0.16, 0.3, headMat, 1.86, 1.75, z); box(0.06, 0.14, 0.35, tailMat, -1.86, 1.65, z); }
-      box(1.2, 0.08, 1.7, black, -1.1, 1.86, 0);                          // Ladefläche
-      for (const z of [-0.95, 0.95]) box(1.3, 0.3, 0.06, paint, -1.1, 2.0, z);
-      box(0.6, 0.12, 0.9, black, -0.15, 1.88, 0); box(0.12, 0.55, 0.9, black, -0.45, 2.15, 0); // Sitz
-      steeringWheel(0.38, 2.25, 0.19);
-      const cage = [[0.55, -0.85], [0.55, 0.85], [-0.75, -0.85], [-0.75, 0.85]];
-      for (const [x, z] of cage) tube([x, 1.82, z], [x * 0.85, 2.95, z * 0.9], 0.05, black);
-      tube([0.47, 2.95, -0.77], [0.47, 2.95, 0.77], 0.05, black); tube([-0.64, 2.95, -0.77], [-0.64, 2.95, 0.77], 0.05, black);
-      for (const z of [-0.77, 0.77]) tube([0.47, 2.95, z], [-0.64, 2.95, z], 0.05, black);
-      for (let k = 0; k < 4; k++) box(0.12, 0.12, 0.12, headMat, 0.47, 3.05, -0.45 + k * 0.3); // Lichtleiste
-      for (const [x, z] of [[1.35, 1.05], [1.35, -1.05], [-1.35, 1.05], [-1.35, -1.05]]) {
-        tube([x, 0.85, z * 0.95], [x * 0.9, 1.4, z * 0.45], 0.08, yellow); // Federbein
+      box(0.07, 0.07, 1.6, black, 0.05, 1.37, 0, 0.5);
+      // Front: breiter Lufteinlass, schmale Lichter
+      box(0.08, 0.2, 1.2, black, 2.31, 0.5, 0); box(0.3, 0.04, 1.7, black, 2.22, 0.37, 0);      // Einlass + Lippe
+      for (const z of [-0.62, 0.62]) {
+        box(0.32, 0.06, 0.42, headMat, 2.18, 0.82, z, -0.32);                                    // LED-Leiste
+        box(0.06, 0.14, 0.2, black, 2.3, 0.52, z * 1.2);                                         // seitliche Einlässe
+        box(0.06, 0.07, 0.5, tailMat, -2.25, 0.86, z * 1.05); box(0.06, 0.18, 0.08, tailMat, -2.25, 0.78, z * 1.3); // Rücklicht in L-Form
+        add(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 10), chrome, -2.28, 0.42, z * 0.85, 0, 0, Math.PI / 2); // Auspuff
       }
-      for (const [x, z, f] of [[1.35, 1.12, 1], [1.35, -1.12, 1], [-1.35, 1.12, 0], [-1.35, -1.12, 0]]) wheel(x, z, 0.85, 0.62, f, 0.5);
-      numberDecal(0.3, 1.55, 1.01, 0.6);
-      return { seat: [-0.15, 1.94, 1.25], wheelR: 0.85, hoodCam: [1.25, 2.5], collide: { r: 1.3, off: 1.3 } };
+      box(0.18, 0.12, 1.3, black, -2.22, 0.42, 0);                                              // Diffusor
+      box(0.3, 0.04, 1.4, paint, -2.08, 1.04, 0, 0.12);                                         // Abrisskante
+      for (const z of [-0.93, 0.93]) box(2.4, 0.08, 0.06, black, 0, 0.4, z);                    // Seitenschweller
+      mirrors(0.62, 1.08, 0.98);
+      numberDecal(-0.25, 0.7, 0.925, 0.5);
+      for (const [x, z, f] of [[1.35, 0.84, 1], [1.35, -0.84, 1], [-1.35, 0.84, 0], [-1.35, -0.84, 0]]) wheel(x, z, 0.44, 0.32, f);
+      rims('modern', darkRim);
+      return { seat: [-0.42, 0.62, 0.7], wheelR: 0.44, hoodCam: [0.95, 1.38], collide: { r: 1.05, off: 1.3 } };
     },
 
-    // ---------- Buggy ----------
-    buggy() {
-      box(2.6, 0.08, 1.2, metal, 0, 0.62, 0);                            // Unterboden
-      box(0.7, 0.25, 1.1, paint, 1.25, 0.82, 0, 0.3);                    // Front
-      box(0.9, 0.06, 1.0, paint, 0.75, 1.0, 0, 0.12);
+    // ---------- 90er Sportlimousine ----------
+    sedan() {
+      profile([[-2.25, 0.4], [-1.86, 0.4], [-1.35, 0.46, 0.5, 'arc'], [0.85, 0.4], [1.35, 0.46, 0.5, 'arc'], [2.2, 0.4],
+        [2.3, 0.5], [2.3, 0.86], [2.2, 0.92], [1.0, 1.0], [-1.45, 1.03], [-2.2, 1.02], [-2.28, 0.92], [-2.28, 0.48]], 1.76, paint, 0.05);
+      profile([[0.98, 0.99], [0.25, 1.47], [-0.95, 1.49], [-1.45, 1.02]], 1.5, glass, 0.04).castShadow = false;
+      profile([[0.3, 1.43], [0.22, 1.51], [-0.97, 1.53], [-1.02, 1.44]], 1.48, paint, 0.03);
+      for (const z of [-0.7, 0.7]) {
+        tube([0.96, 1.0, z * 1.02], [0.26, 1.46, z * 0.99], 0.04, paint);
+        box(0.12, 0.46, 0.05, black, -0.28, 1.24, z * 1.03);                                     // B-Säule schwarz
+        tube([-1.43, 1.03, z * 1.02], [-0.92, 1.47, z * 0.99], 0.06, paint);
+      }
+      // Front: breite, rechteckige Lichter und Querstreben-Grill
+      box(0.06, 0.18, 1.7, black, 2.31, 0.76, 0);                                                // dunkles Band
       for (const z of [-0.6, 0.6]) {
-        tube([1.5, 0.7, z * 0.8], [0.5, 1.15, z], 0.045, paint);           // Seitenrohre
-        tube([0.5, 1.15, z], [-0.6, 1.95, z * 0.85], 0.045, paint);        // Bügel vorne
-        tube([-0.6, 1.95, z * 0.85], [-1.0, 0.7, z], 0.045, paint);        // Bügel hinten
-        tube([0.5, 0.66, z], [0.5, 1.15, z], 0.045, paint);
-        tube([-1.0, 0.66, z], [-1.45, 0.9, z * 0.8], 0.045, paint);
+        box(0.07, 0.14, 0.42, headMat, 2.33, 0.76, z);
+        box(0.07, 0.08, 0.14, amber, 2.33, 0.62, z * 1.38);                                       // Blinker
+        box(0.07, 0.1, 0.22, headMat, 2.33, 0.5, z * 1.15);                                       // Nebellicht
+        box(0.06, 0.16, 0.48, tailMat, -2.3, 0.82, z * 1.25); box(0.06, 0.16, 0.24, amber, -2.3, 0.82, z * 0.62);
       }
-      tube([-0.6, 1.95, -0.51], [-0.6, 1.95, 0.51], 0.045, paint);
-      for (let k = 0; k < 4; k++) box(0.1, 0.1, 0.12, headMat, -0.55, 2.04, -0.36 + k * 0.24); // Lichtleiste
-      box(0.55, 0.12, 0.7, black, -0.3, 0.72, 0); box(0.12, 0.6, 0.7, black, -0.6, 1.0, 0, 0.15); // Sitz
-      steeringWheel(0.3, 1.18, 0.15);
-      box(0.6, 0.45, 0.7, metal, -1.2, 0.95, 0);                          // Motor
-      const spare = new THREE.CylinderGeometry(0.42, 0.42, 0.25, 18); spare.rotateZ(Math.PI / 2);
-      add(spare, black, -1.6, 1.2, 0);                                     // Reserverad
-      for (const z of [0.5, -0.5]) box(0.05, 0.12, 0.2, tailMat, -1.52, 0.85, z);
-      for (const [x, z, f] of [[1.3, 0.98, 1], [1.3, -0.98, 1], [-1.25, 1.0, 0], [-1.25, -1.0, 0]]) {
-        wheel(x, z, 0.55, 0.42, f, 0.55);
-        tube([x, 0.55, z * 0.45], [x * 0.9, 0.8, z * 0.6], 0.04, yellow);
+      for (let i = 0; i < 3; i++) box(0.08, 0.025, 0.5, chrome, 2.34, 0.71 + i * 0.05, 0);       // Grillstreben
+      box(0.1, 0.12, 1.84, black, 2.3, 0.6, 0); box(0.1, 0.12, 1.84, black, -2.3, 0.6, 0);       // Stossstangen-Leisten
+      for (const z of [-0.89, 0.89]) box(3.1, 0.08, 0.05, black, 0.1, 0.62, z);                   // Seiten-Schutzleiste
+      add(new THREE.CylinderGeometry(0.055, 0.055, 0.18, 10), chrome, -2.3, 0.44, 0.55, 0, 0, Math.PI / 2);
+      box(0.22, 0.03, 1.1, black, -2.12, 1.05, 0);                                                // kleine Kofferraumlippe
+      mirrors(0.82, 1.06, 0.96);
+      numberDecal(-0.3, 0.8, 0.895, 0.45);
+      for (const [x, z, f] of [[1.35, 0.82, 1], [1.35, -0.82, 1], [-1.35, 0.82, 0], [-1.35, -0.82, 0]]) wheel(x, z, 0.42, 0.3, f);
+      rims('mesh', rimMat);
+      return { seat: [-0.42, 0.6, 0.74], wheelR: 0.42, hoodCam: [1.1, 1.42], collide: { r: 1.0, off: 1.3 } };
+    },
+
+    // ---------- 80er Turbo-Schrägheck ----------
+    hatch() {
+      profile([[-2.15, 0.44], [-1.82, 0.44], [-1.32, 0.48, 0.5, 'arc'], [0.85, 0.44], [1.35, 0.48, 0.5, 'arc'], [2.1, 0.44],
+        [2.24, 0.56], [2.22, 0.78], [1.6, 0.9], [0.9, 1.02], [-1.7, 1.05], [-2.1, 0.98], [-2.18, 0.86], [-2.18, 0.52]], 1.72, paint, 0.1);
+      profile([[0.92, 1.0], [0.42, 1.56], [-0.95, 1.6], [-1.85, 1.03]], 1.5, glass, 0.07).castShadow = false;
+      profile([[0.47, 1.52], [0.39, 1.6], [-0.97, 1.64], [-1.05, 1.55]], 1.48, paint, 0.03);
+      for (const z of [-0.7, 0.7]) {
+        tube([0.9, 1.02, z * 1.02], [0.43, 1.55, z * 0.99], 0.05, paint);
+        box(0.12, 0.5, 0.05, black, -0.25, 1.29, z * 1.03);
+        tube([-1.8, 1.05, z * 1.02], [-0.98, 1.58, z * 0.99], 0.09, paint);                       // breite C-Säule
       }
-      numberDecal(1.3, 0.88, 0.56, 0.3);
-      return { seat: [-0.3, 0.78, 1.18], wheelR: 0.55, hoodCam: [0.75, 1.7], collide: { r: 1.0, off: 1.15 } };
+      // dicke schwarze 80er-Stossstangen
+      box(0.22, 0.24, 1.86, black, 2.18, 0.5, 0); box(0.22, 0.24, 1.86, black, -2.15, 0.52, 0);
+      for (const z of [-0.6, 0.6]) {
+        box(0.08, 0.16, 0.4, black, 2.21, 0.74, z); box(0.07, 0.12, 0.34, headMat, 2.24, 0.74, z);   // Lichter mit Rahmen
+        box(0.06, 0.1, 0.12, amber, 2.24, 0.74, z * 1.45);
+        box(0.06, 0.2, 0.44, tailMat, -2.2, 0.82, z * 1.18); box(0.06, 0.2, 0.18, amber, -2.2, 0.82, z * 0.62);
+      }
+      for (let i = 0; i < 4; i++) box(0.06, 0.03, 0.5, black, 2.24, 0.68 + i * 0.045, 0);          // Grill
+      box(0.4, 0.05, 1.5, black, -1.98, 1.06, 0, -0.1);                                             // Heckspoiler
+      for (const z of [-0.87, 0.87]) box(3.2, 0.12, 0.04, black, 0, 0.5, z);                         // Schutzleiste unten
+      label('TURBO', -0.45, 0.62, 0.875, 0.8, 0.2, '#ffffff');
+      add(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 10), chrome, -2.2, 0.42, -0.5, 0, 0, Math.PI / 2);
+      mirrors(0.86, 1.08, 0.94);
+      numberDecal(0.45, 0.76, 0.875, 0.4);
+      for (const [x, z, f] of [[1.35, 0.8, 1], [1.35, -0.8, 1], [-1.32, 0.8, 0], [-1.32, -0.8, 0]]) wheel(x, z, 0.42, 0.28, f);
+      rims('turbine', rimMat);
+      return { seat: [-0.4, 0.66, 0.78], wheelR: 0.42, hoodCam: [1.0, 1.5], collide: { r: 1.0, off: 1.25 } };
     }
   };
 
-  const info = (builders[cfg.model] || builders.sport)();
+  const info = (builders[cfg.model] || builders.coupe)();
   let driver = null;
   if (char && window.Drivers) {
     driver = Drivers.build(char);

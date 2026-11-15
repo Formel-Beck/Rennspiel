@@ -52,6 +52,26 @@ window.EngineSound = function (ctx, out, opts) {
   shaper.connect(filter).connect(bass).connect(body).connect(comp).connect(master);
   master.connect(out);
   src.start(); sub.start(); sub2.start();
+  // Turbo: Pfeifen des Laders und "Pssscht" beim Gaswegnehmen
+  const whistle = ctx.createOscillator(); whistle.type = 'sine'; whistle.frequency.value = 1500;
+  const whistleGain = ctx.createGain(); whistleGain.gain.value = 0;
+  whistle.connect(whistleGain).connect(comp); whistle.start();
+  let noiseBuf = null;
+  function blowoff(p) {
+    if (!noiseBuf) { noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 0.9;
+    const gg = ctx.createGain(), t = ctx.currentTime, v = 0.05 * p * (lastVol == null ? 1 : lastVol);
+    gg.gain.setValueAtTime(0, t); gg.gain.linearRampToValueAtTime(v, t + 0.02); gg.gain.exponentialRampToValueAtTime(0.0005, t + 0.45);
+    bp.frequency.setValueAtTime(3200, t); bp.frequency.exponentialRampToValueAtTime(1400, t + 0.45);
+    n.connect(bp).connect(gg).connect(out); n.start(t); n.stop(t + 0.5);
+  }
+  let lastVol = 1;
+  function setTurbo(p, on) {
+    const t = ctx.currentTime;
+    whistle.frequency.setTargetAtTime(1300 + 2600 * p, t, 0.05);
+    whistleGain.gain.setTargetAtTime(on ? p * p * 0.18 : 0, t, on ? 0.08 : 0.03);
+  }
 
   // 3 Gänge. Die Autos sind sehr schnell auf Höchsttempo – darum wenige Gänge
   // mit grossem Drehzahlbereich, sonst würde der Motor ständig schalten.
@@ -80,6 +100,7 @@ window.EngineSound = function (ctx, out, opts) {
   // speed/maxSpeed = Tempo, throttle = Gas (0/1), active = hörbar?
   // slip = seitliches Rutschen (m/s), slope = Steigung (-1 bis 1)
   function update(dt, speed, maxSpeed, throttle, active, slip, slope, volume) {
+    lastVol = volume == null ? 1 : volume;
     const sf = Math.min(1.1, Math.abs(speed) / maxSpeed);
     // Schalten (mit Abstand zwischen hoch und runter, damit er nicht hin und her springt)
     if (shiftT <= 0) {
@@ -123,7 +144,7 @@ window.EngineSound = function (ctx, out, opts) {
   // Motor abschalten (beim Fahrzeugwechsel)
   function stop() {
     master.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
-    setTimeout(() => { try { src.stop(); sub.stop(); sub2.stop(); master.disconnect(); } catch (e) {} }, 400);
+    setTimeout(() => { try { src.stop(); sub.stop(); sub2.stop(); whistle.stop(); master.disconnect(); } catch (e) {} }, 400);
   }
-  return { update, state, stop };
+  return { update, state, stop, setTurbo, blowoff };
 };

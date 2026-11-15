@@ -2,7 +2,10 @@
 //  FAHRZEUGE
 //  Hier liegen die grossen Unterschiede im Spiel.
 //
-//  model    = welches 3D-Modell (sport, formula, kart, monster, buggy)
+//  model    = welches 3D-Modell (coupe, sedan, hatch)
+//  drive    = 'rwd' Heckantrieb (oversteer = wie stark das Heck mit Gas ausbricht)
+//             'fwd' Frontantrieb (understeer = schiebt mit Gas über die Vorderräder)
+//  turbo    = Turboloch: lag = Sekunden bis voller Ladedruck, gain = Extra-Schub
 //  maxSpeed = Höchsttempo in m/s (×3 ≈ km/h)
 //  accel    = Beschleunigung, brake = Bremskraft
 //  handling = wie stark es lenkt
@@ -12,24 +15,19 @@
 //  sound    = Motorklang: pitch = Tonhöhe, sub = Brummen, bright = Helligkeit
 // =====================================================
 window.CARS = [
-  { id: 'blitz', name: 'Blitz', type: 'Sport-Cabrio', model: 'sport',
-    info: 'Schnell und ausgewogen – der Klassiker für jede Strecke.',
-    maxSpeed: 60, accel: 26, brake: 55, handling: 1.9, grip: 1.0, loose: 1.0, offroad: 1.0,
-    sound: { pitch: 1, sub: 0.25, bright: 1 } },
-  { id: 'rakete', name: 'Rakete', type: 'Formel-Renner', model: 'formula',
-    info: 'Unschlagbar auf Asphalt. Im Gelände und auf Eis aber hilflos.',
-    maxSpeed: 72, accel: 30, brake: 72, handling: 2.1, grip: 1.25, loose: 0.55, offroad: 0.6,
-    sound: { pitch: 1.35, sub: 0.15, bright: 1.35 } },
-  { id: 'flitzer', name: 'Flitzer', type: 'Go-Kart', model: 'kart',
-    info: 'Winzig, wendig und blitzschnell beim Start – aber wenig Endtempo.',
-    maxSpeed: 46, accel: 40, brake: 62, handling: 2.6, grip: 1.1, loose: 0.95, offroad: 0.9,
-    sound: { pitch: 1.8, sub: 0.05, bright: 1.4 } },
-  { id: 'brummbaer', name: 'Brummbär', type: 'Monstertruck', model: 'monster',
-    info: 'Riesenräder! Langsam und schwerfällig, aber im Gelände kaum zu bremsen.',
-    maxSpeed: 50, accel: 20, brake: 45, handling: 1.5, grip: 0.9, loose: 1.35, offroad: 1.8,
-    sound: { pitch: 0.62, sub: 0.5, bright: 0.7 } },
-  { id: 'fuchs', name: 'Wüstenfuchs', type: 'Buggy', model: 'buggy',
-    info: 'Der Allrounder für Sand, Schnee und Schlamm.',
-    maxSpeed: 56, accel: 25, brake: 55, handling: 1.95, grip: 0.95, loose: 1.25, offroad: 1.4,
-    sound: { pitch: 0.9, sub: 0.35, bright: 0.95 } }
+  { id: 'vento', name: 'Vento GT', type: 'Kompakt-Coupé · 2024', model: 'coupe',
+    info: 'Modernes Sport-Coupé mit Heckantrieb. Das schnellste Auto – präzise, kräftig und mit einem Hauch Heck-Schwenk beim Herausbeschleunigen.',
+    drive: 'rwd', oversteer: 0.45,
+    maxSpeed: 66, accel: 30, brake: 62, handling: 2.0, grip: 1.1, loose: 0.85, offroad: 0.85,
+    sound: { pitch: 1.05, sub: 0.3, bright: 1.1 } },
+  { id: 'falke', name: 'Falke S', type: '90er Sportlimousine · 1995', model: 'sedan',
+    info: 'Leichte Limousine mit Heckantrieb und Reihensechser-Klang. Sehr gutes Handling – mit Gas in der Kurve lässt sie sich schön driften.',
+    drive: 'rwd', oversteer: 0.9,
+    maxSpeed: 60, accel: 25, brake: 56, handling: 2.2, grip: 1.0, loose: 0.9, offroad: 0.95,
+    sound: { pitch: 0.92, sub: 0.28, bright: 1.15 } },
+  { id: 'nordpfeil', name: 'Nordpfeil Turbo', type: '80er Turbo-Schrägheck · 1985', model: 'hatch',
+    info: 'Frontantrieb und Turbo: Erst passiert wenig, dann schiebt der Lader kräftig an. Untersteuert etwas, ist dafür auf Schnee, Eis und Schotter der Beste.',
+    drive: 'fwd', understeer: 0.2, turbo: { lag: 0.9, gain: 0.6 },
+    maxSpeed: 62, accel: 23, brake: 52, handling: 1.9, grip: 0.95, loose: 1.3, offroad: 1.15,
+    sound: { pitch: 0.85, sub: 0.35, bright: 0.9 } }
 ];
