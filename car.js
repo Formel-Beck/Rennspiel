@@ -211,6 +211,110 @@ window.buildCarModel = function (cfg, char) {
       for (const [x, z, f] of [[1.35, 0.8, 1], [1.35, -0.8, 1], [-1.32, 0.8, 0], [-1.32, -0.8, 0]]) wheel(x, z, 0.42, 0.28, f);
       rims('turbine', rimMat);
       return { seat: [-0.4, 0.66, 0.78], wheelR: 0.42, hoodCam: [1.0, 1.5], collide: { r: 1.0, off: 1.25 } };
+    },
+
+    // ---------- Arcade: Go-Kart ----------
+    kart() {
+      const seat = new THREE.MeshPhongMaterial({ color: 0x222831, shininess: 20 });
+      box(2.3, 0.08, 1.15, metal, 0, 0.26, 0);                                       // Rahmen
+      tube([1.25, 0.28, -0.5], [1.25, 0.28, 0.5], 0.04, metal);                      // Vorderachse
+      tube([-1.0, 0.28, -0.62], [-1.0, 0.28, 0.62], 0.05, metal);                    // Hinterachse
+      profile([[0.5, 0.3], [1.55, 0.3], [1.62, 0.42], [1.2, 0.55], [0.55, 0.5]], 0.9, paint, 0.05); // Frontverkleidung
+      for (const z of [-0.62, 0.62]) {
+        profile([[-0.7, 0.28], [0.6, 0.28], [0.55, 0.5], [-0.6, 0.5]], 0.28, paint, 0.05).position.z = z;  // Seitenkästen
+      }
+      box(0.3, 0.2, 1.5, black, 1.72, 0.32, 0);                                       // Frontstossstange
+      box(0.2, 0.25, 1.5, black, -1.4, 0.38, 0);                                      // Heckstossstange
+      box(0.55, 0.12, 0.55, seat, -0.35, 0.36, 0); box(0.12, 0.6, 0.55, seat, -0.65, 0.62, 0, 0.25);  // Sitz
+      tube([0.55, 0.5, 0], [0.25, 0.85, 0], 0.03, black); steeringWheel(0.22, 0.88, 0.16);
+      box(0.4, 0.32, 0.32, metal, -0.9, 0.5, -0.38); add(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8), chrome, -1.15, 0.55, -0.38, 0, 0, Math.PI / 2); // Motor + Auspuff
+      numberDecal(1.05, 0.5, 0.46, 0.34);
+      for (const [x, z, f, r, w] of [[1.25, 0.66, 1, 0.26, 0.24], [1.25, -0.66, 1, 0.26, 0.24], [-1.0, 0.72, 0, 0.3, 0.34], [-1.0, -0.72, 0, 0.3, 0.34]]) wheel(x, z, r, w, f, 0.55);
+      return { seat: [-0.38, 0.32, 0.9], wheelR: 0.3, hoodCam: [0.5, 1.15], collide: { r: 0.85, off: 0.75 } };
+    },
+
+    // ---------- Arcade: runder Mini-Flitzer ----------
+    bubble() {
+      profile([[-1.55, 0.36], [-1.2, 0.36], [-0.9, 0.42, 0.42, 'arc'], [0.48, 0.36], [0.9, 0.42, 0.42, 'arc'], [1.5, 0.36],
+        [1.62, 0.55], [1.55, 0.82], [1.1, 0.98], [0.5, 1.02], [-1.3, 1.04], [-1.6, 0.9], [-1.65, 0.5]], 1.62, paint, 0.16);
+      profile([[0.55, 1.0], [0.1, 1.55], [-0.85, 1.6], [-1.3, 1.45], [-1.45, 1.02]], 1.42, glassClear, 0.12).castShadow = false;
+      profile([[0.15, 1.52], [0.05, 1.6], [-0.85, 1.66], [-1.32, 1.5], [-1.25, 1.44], [-0.85, 1.58], [0.1, 1.5]], 1.46, paint, 0.05);
+      for (const z of [-0.66, 0.66]) {
+        tube([0.53, 1.0, z * 1.03], [0.1, 1.53, z * 0.98], 0.05, paint);
+        tube([-1.43, 1.02, z * 1.03], [-1.25, 1.48, z * 0.98], 0.08, paint);
+        // grosse, runde Glubsch-Scheinwerfer
+        const hl = add(new THREE.CylinderGeometry(0.2, 0.2, 0.08, 18), headMat, 1.55, 0.78, z * 0.78, 0, 0, Math.PI / 2);
+        add(new THREE.TorusGeometry(0.21, 0.035, 6, 18), chrome, 1.58, 0.78, z * 0.78, 0, Math.PI / 2, 0);
+        hl.castShadow = false;
+        add(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 12), tailMat, -1.64, 0.8, z * 0.7, 0, 0, Math.PI / 2);
+      }
+      box(0.12, 0.16, 1.6, black, 1.62, 0.46, 0); box(0.12, 0.16, 1.6, black, -1.66, 0.46, 0);  // Stossstangen
+      box(0.06, 0.06, 0.5, chrome, 1.66, 0.6, 0);                                               // Kühler-Leiste
+      mirrors(0.45, 1.06, 0.88);
+      numberDecal(-0.25, 0.72, 0.82, 0.42);
+      for (const [x, z, f] of [[0.9, 0.72, 1], [0.9, -0.72, 1], [-0.9, 0.72, 0], [-0.9, -0.72, 0]]) wheel(x, z, 0.38, 0.3, f);
+      rims('turbine', rimMat);
+      return { seat: [-0.45, 0.62, 0.74], wheelR: 0.38, hoodCam: [0.6, 1.5], collide: { r: 0.95, off: 0.75 } };
+    },
+
+    // ---------- Drift: Turbo-Coupé mit Klappscheinwerfern ----------
+    jdm() {
+      profile([[-2.15, 0.36], [-1.82, 0.36], [-1.3, 0.44, 0.52, 'arc'], [0.82, 0.36], [1.34, 0.44, 0.52, 'arc'], [2.1, 0.36],
+        [2.26, 0.46], [2.24, 0.62], [1.4, 0.82], [0.72, 0.94], [-1.55, 0.98], [-2.1, 0.96], [-2.2, 0.84], [-2.2, 0.48]], 1.8, paint, 0.06);
+      profile([[0.75, 0.93], [0.0, 1.32], [-0.7, 1.35], [-1.95, 0.98]], 1.46, glass, 0.05).castShadow = false;
+      profile([[0.05, 1.29], [-0.02, 1.37], [-0.72, 1.4], [-1.2, 1.26], [-1.12, 1.22], [-0.7, 1.33], [0.0, 1.29]], 1.42, paint, 0.03);
+      for (const z of [-0.7, 0.7]) {
+        tube([0.72, 0.95, z * 1.02], [0.02, 1.33, z * 0.98], 0.045, paint);
+        tube([-1.9, 0.98, z * 1.02], [-1.1, 1.3, z * 0.98], 0.07, paint);
+        // Klappscheinwerfer (aufgeklappt)
+        box(0.34, 0.2, 0.46, paint, 1.6, 0.92, z * 0.8); box(0.04, 0.13, 0.38, headMat, 1.78, 0.93, z * 0.8);
+        box(0.06, 0.06, 0.34, amber, 2.27, 0.5, z * 0.95);
+        box(0.06, 0.12, 0.6, tailMat, -2.21, 0.78, z * 0.72);
+        box(0.6, 0.12, 0.08, black, 1.0, 0.68, z * 0.92);                                        // Kiemen
+        // breite, aufgesetzte Kotflügel
+        box(0.95, 0.12, 0.14, paint, 1.34, 0.86, z * 1.32 / 1.4 * 1.0); box(1.0, 0.14, 0.16, paint, -1.3, 0.88, z * 0.97);
+      }
+      box(0.1, 0.1, 1.5, black, 2.26, 0.4, 0); box(0.12, 0.1, 1.6, black, -2.2, 0.42, 0);
+      // grosser Heckflügel
+      for (const z of [-0.6, 0.6]) box(0.12, 0.3, 0.06, black, -1.95, 1.12, z);
+      box(0.45, 0.05, 1.82, paint, -2.0, 1.29, 0, -0.06); for (const z of [-0.92, 0.92]) box(0.5, 0.2, 0.04, black, -2.0, 1.25, z);
+      add(new THREE.CylinderGeometry(0.075, 0.075, 0.22, 10), chrome, -2.24, 0.42, 0.55, 0, 0, Math.PI / 2);
+      mirrors(0.6, 1.02, 0.96);
+      numberDecal(-0.3, 0.68, 0.905, 0.48);
+      for (const [x, z, f] of [[1.34, 0.84, 1], [1.34, -0.84, 1], [-1.3, 0.86, 0], [-1.3, -0.86, 0]]) wheel(x, z, 0.42, 0.34, f);
+      rims('mesh', darkRim);
+      return { seat: [-0.42, 0.56, 0.7], wheelR: 0.42, hoodCam: [0.9, 1.3], collide: { r: 1.0, off: 1.3 } };
+    },
+
+    // ---------- Drift: Muscle-Car mit V8 ----------
+    muscle() {
+      profile([[-2.4, 0.4], [-1.98, 0.4], [-1.4, 0.5, 0.58, 'arc'], [0.95, 0.4], [1.45, 0.48, 0.5, 'arc'], [2.35, 0.4],
+        [2.45, 0.52], [2.44, 0.8], [2.2, 0.9], [0.65, 0.98], [-1.5, 1.02], [-2.3, 1.0], [-2.45, 0.88], [-2.45, 0.5]], 1.9, paint, 0.06);
+      profile([[0.62, 0.97], [-0.1, 1.36], [-0.75, 1.38], [-1.75, 1.02]], 1.5, glass, 0.05).castShadow = false;
+      profile([[-0.05, 1.33], [-0.12, 1.41], [-0.77, 1.43], [-1.25, 1.27], [-1.18, 1.24], [-0.75, 1.36], [-0.1, 1.33]], 1.46, paint, 0.03);
+      const stripe = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 60 });
+      for (const z of [-0.72, 0.72]) {
+        tube([0.6, 0.98, z * 1.02], [-0.1, 1.37, z * 0.98], 0.05, paint);
+        tube([-1.7, 1.02, z * 1.02], [-1.15, 1.33, z * 0.98], 0.1, paint);
+        box(1.1, 0.16, 0.18, paint, -1.4, 0.9, z * 1.32);                                         // breite Hinterbacken
+        box(0.06, 0.12, 0.3, headMat, 2.46, 0.74, z * 0.72);                                      // Lichter im Grill
+        box(0.06, 0.1, 0.62, tailMat, -2.46, 0.82, z * 0.6);
+      }
+      for (const z of [-0.17, 0.17]) {                                                            // Rennstreifen
+        box(1.6, 0.02, 0.16, stripe, 1.42, 0.985, z, -0.05);
+        box(0.66, 0.02, 0.16, stripe, -0.44, 1.45, z, 0.03);
+        box(0.8, 0.02, 0.16, stripe, -1.9, 1.05, z, 0.02);
+      }
+      box(0.08, 0.26, 1.5, black, 2.46, 0.66, 0);                                                 // Grill
+      box(0.1, 0.1, 1.94, chrome, 2.48, 0.46, 0); box(0.1, 0.1, 1.94, chrome, -2.48, 0.48, 0);    // Chrom-Stossstangen
+      profile([[0.9, 0.95], [1.7, 0.95], [1.65, 1.1], [1.0, 1.12]], 0.6, black, 0.04);            // Lufthutze
+      box(0.3, 0.05, 1.5, paint, -2.32, 1.05, 0, 0.18);                                           // Entenbürzel
+      for (const z of [-0.7, 0.7]) add(new THREE.CylinderGeometry(0.08, 0.08, 0.24, 10), chrome, -2.5, 0.42, z, 0, 0, Math.PI / 2);
+      mirrors(0.5, 1.06, 1.0);
+      numberDecal(-0.25, 0.72, 0.955, 0.5);
+      for (const [x, z, f, r, w] of [[1.45, 0.86, 1, 0.42, 0.3], [1.45, -0.86, 1, 0.42, 0.3], [-1.4, 0.9, 0, 0.5, 0.42], [-1.4, -0.9, 0, 0.5, 0.42]]) wheel(x, z, r, w, f);
+      rims('modern', chrome);
+      return { seat: [-0.5, 0.6, 0.72], wheelR: 0.5, hoodCam: [1.1, 1.38], collide: { r: 1.05, off: 1.4 } };
     }
   };
 

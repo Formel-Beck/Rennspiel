@@ -39,6 +39,15 @@
 
   // ---------- Auto ----------
   // Gewähltes Fahrzeug und gewählter Fahrer (werden gespeichert)
+  // Fahrmodus: 'normal', 'arcade' (abrupte Lenkung, enge Kurven) oder 'drift'
+  // Er bestimmt, welche Strecken und Autos im Menü erscheinen. Das Fahrgefühl
+  // im Rennen kommt von der Strecke (track.mode) – so fahren im Mehrspieler alle gleich.
+  let driveMode = 'normal';
+  try { driveMode = localStorage.getItem('rennspiel-drive') || 'normal'; } catch (e) {}
+  if (!['normal', 'arcade', 'drift'].includes(driveMode)) driveMode = 'normal';
+  window.DRIVE_MODE = driveMode;
+  const carsForMode = m => CARS.filter(c => (c.modes || ['normal']).includes(m))
+    .sort((a, b) => ((b.modes || ['normal'])[0] === m) - ((a.modes || ['normal'])[0] === m));
   let carCfg = CARS[0], char = CHARACTERS[0];
   try {
     carCfg = CARS.find(c => c.id === localStorage.getItem('rennspiel-car')) || carCfg;
@@ -96,7 +105,7 @@
     computePerf();
     applyCarToModel();
   }
-  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, steerIn: 0, pitch: 0, roll: 0, turboP: 0, lastUp: false };
+  const car = { x: 0, y: 0, z: 0, vx: 0, vz: 0, angle: 0, speed: 0, slip: 0, steerVis: 0, steerIn: 0, pitch: 0, roll: 0, turboP: 0, lastUp: false, drift: 0, driftT: 0, dBoost: 0 };
 
   // ---------- Partikel (Staub, Rauch, Spritzer) ----------
   const particleGroup = new THREE.Group();
@@ -136,7 +145,7 @@
   function clearParticles() { for (const p of particles) { p.life = 0; p.s.visible = false; } }
 
   // ---------- Strecke laden ----------
-  let world = null, track = null, theme = null, comicTick = 0;
+  let world = null, track = null, theme = null, comicTick = 0, driftPts = 0;
   function disposeScene(scene) {
     scene.remove(carModel.group); scene.remove(particleGroup);
     scene.traverse(o => {
@@ -421,7 +430,7 @@
     const N = world.N, i = (N - 3 - Math.floor(slot / 2) * 2 + N) % N, p = world.path[i], t = world.tang[i], n = world.norm[i];
     const side = MP.racing || slot > 0 ? (slot % 2 ? 1 : -1) * Math.min(4, world.edge - 3) : 0;
     car.x = p.x + n.x * side; car.z = p.z + n.z * side; car.angle = Math.atan2(t.z, t.x);
-    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.steerIn = 0; car.pitch = 0; car.roll = 0; car.turboP = 0;
+    car.speed = 0; car.vx = 0; car.vz = 0; car.slip = 0; car.steerVis = 0; car.steerIn = 0; car.pitch = 0; car.roll = 0; car.turboP = 0; car.drift = 0; car.driftT = 0; car.dBoost = 0; driftPts = 0;
     car.y = world.surfaceHeight(car.x, car.z);
     lastIndex = i;
     applyCarToModel();
@@ -441,7 +450,7 @@
       const others = CHARACTERS.filter(c => c.id !== char.id).sort(() => Math.random() - 0.5);
       for (let k = 0; k < soloBots; k++) {
         const ch = others[k % others.length];
-        entries.push({ id: 'bot' + (k + 1), name: '🤖 ' + ch.name, char: ch.id, car: CARS[Math.floor(Math.random() * CARS.length)].id, slot: k });
+        entries.push({ id: 'bot' + (k + 1), name: '🤖 ' + ch.name, char: ch.id, car: (() => { const l = carsForMode(track.mode || 'normal'); return l[Math.floor(Math.random() * l.length)].id; })(), slot: k });
       }
       slot = soloBots; // allein startest du ganz hinten
     }
@@ -544,7 +553,8 @@
     const slope = Math.sin(car.pitch);
     const offFree = M.offroadFree && sf.topAbs;                // Turbo/Stern/Spuk: Wiese bremst nicht
     const off = sf.topAbs && !offFree ? perf.offroad : 1;      // Gelände-Talent von Fahrzeug und Fahrer
-    const boostAmt = Math.max(M.boost, padBoost > 0 ? 0.45 : 0, M.rocket ? 0.55 : 0);
+    const DM = track.mode || 'normal', ARC = DM === 'arcade', DRIFT = DM === 'drift';
+    const boostAmt = Math.max(M.boost, padBoost > 0 ? 0.45 : 0, M.rocket ? 0.55 : 0, car.dBoost > 0 ? 0.14 : 0);
     let top = (sf.topAbs && !offFree ? sf.topAbs * off * PHYS.offroadSpeed : perf.maxSpeed * (sf.top || 1)) * clamp(1 - 2 * slope, 0.6, 1.3);
     top *= 1 + boostAmt;
     let grip = Math.min(1.3, sf.grip * (sf.grip < 0.7 ? perf.loose : perf.grip)) * PHYS.gripAll * weatherGrip; // rutschiger Boden: Fahrzeug-Wert 'loose'; Regen/Schnee: weniger
@@ -567,19 +577,42 @@
     let steerWant = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (!steerWant && input.steer != null) steerWant = input.steer; // Kippsteuerung: stufenlos
     const back = Math.abs(steerWant) < Math.abs(car.steerIn) || steerWant * car.steerIn < 0;
-    const sRate = (back ? 4.5 : 2.6) * (PHYS.steerRate || 1);
-    car.steerIn += clamp(steerWant - car.steerIn, -sRate * dt, sRate * dt);
+    const sRate = (back ? 4.5 : 2.6) * (PHYS.steerRate || 1) * (DRIFT ? 1.6 : 1);
+    if (ARC) car.steerIn = steerWant;                       // Arcade: Lenkung sofort voll, wie früher
+    else car.steerIn += clamp(steerWant - car.steerIn, -sRate * dt, sRate * dt);
     const steerIn = car.steerIn;
     const rwdK = carCfg.drive === 'rwd' && input.up && !M.spin && vF > 12 ? (carCfg.oversteer || 0) * Math.min(1, (vF - 12) / 25) * Math.min(1, Math.abs(steerIn) * 1.5) : 0;
-    if (input.up) { if (vF < top) vF += perf.accel * accelFactor(vF, top) * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
-    else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) : 20 * sf.accel) * dt;
+    // ---- Drift-Modus: Heck bricht mit Gas + starkem Lenken (oder kurz Bremsen + Lenken) aus ----
+    if (DRIFT && !M.spin) {
+      const hard = Math.abs(steerIn) > 0.5;
+      if (hard && vF > 14 && input.down) car.drift = 1;                           // "Handbremse"
+      else if (hard && vF > 16 && input.up) car.drift = Math.max(car.drift, 0.75);
+      car.drift = Math.max(0, car.drift - dt * (Math.abs(steerIn) < 0.2 || vF < 8 ? 2.2 : 0.25));
+    } else car.drift = 0;
+    const dK = car.drift;
+    const accF = ARC ? 1 : accelFactor(vF, top);            // Arcade: volle Beschleunigung bis zum Höchsttempo
+    if (input.up) { if (vF < top) vF += perf.accel * accF * turboMul * Math.min(1, sf.accel * off) * traction * dt; }
+    else if (input.down) vF -= (vF > 0 ? perf.brake * (0.35 + 0.65 * grip) * (1 - 0.75 * dK) : 20 * sf.accel) * dt;
     else { const fr = 14 * dt; vF = Math.abs(vF) < fr ? 0 : vF - Math.sign(vF) * fr; }
     vF -= 9.81 * slope * PHYS.gravity * dt;                 // Schwerkraft
     if (vF > top) vF = Math.max(top, vF - sf.drag / off * dt); // zu schnell für den Untergrund
     if (vF < -15) vF = -15;
 
     // Seitliches Rutschen wird je nach Grip abgebaut
-    vS *= Math.exp(-grip * (1 - 0.4 * rwdK) * PHYS.slide * dt);
+    const vS0 = Math.abs(vS);
+    vS *= Math.exp(-grip * (1 - 0.4 * rwdK) * (1 - 0.86 * dK) * PHYS.slide * dt);
+    if (dK > 0) {
+      vF += (vS0 - Math.abs(vS)) * 0.8 * dK;                  // im Drift geht kaum Tempo verloren
+      const ang = Math.atan2(vS0, Math.max(1, Math.abs(vF)));
+      if (ang > 0.75) vS *= Math.exp(-5 * dt);                 // nicht komplett querstellen
+      // Drift-Punkte und Drift-Boost (je länger der Drift, desto länger der Boost)
+      if (ang > 0.18 && vF > 12) { car.driftT += dt; driftPts += vF * ang * dt * 12; }
+    }
+    if (DRIFT && car.driftT > 0 && (dK < 0.15 || Math.atan2(Math.abs(vS), Math.max(1, Math.abs(vF))) < 0.1)) {
+      if (car.driftT > 0.8) { car.dBoost = Math.min(1.8, 0.4 + car.driftT * 0.45); flash(car.driftT > 2.5 ? 'SUPER-DRIFT-BOOST!' : 'Drift-Boost!', 0.8); beep(660, 0.08); }
+      car.driftT = 0;
+    }
+    if (car.dBoost > 0) car.dBoost -= dt;
 
     car.vx = fx * vF + sx * vS;
     car.vz = fz * vF + sz * vS;
@@ -590,7 +623,11 @@
     let steerAmt = Math.min(1, Math.abs(vF) / 12) * (0.55 + 0.45 * Math.min(1, grip));
     // Frontantrieb: mit Gas schieben die Vorderräder etwas geradeaus (Untersteuern)
     if (carCfg.drive === 'fwd' && input.up) steerAmt *= 1 - (carCfg.understeer || 0) * Math.min(1, Math.abs(vF) / 45);
-    steerAmt *= (1 + 0.35 * rwdK) * steerSpeedFactor(vF);
+    // Im Drift dreht das Auto stärker ein – aber ab etwa 35° Driftwinkel nur noch wenig weiter (kein Dreher)
+    const slideAng = Math.atan2(Math.abs(vS), Math.max(1, Math.abs(vF)));
+    const deeper = Math.sign(steer) === Math.sign(vS) || Math.abs(vS) < 0.5;
+    const driftYaw = dK > 0 ? (1 + 0.8 * dK) * (deeper && slideAng > 0.6 ? 0.35 : 1) : 1;
+    steerAmt *= (1 + 0.35 * rwdK) * (ARC ? 1 : DRIFT ? Math.sqrt(steerSpeedFactor(vF)) : steerSpeedFactor(vF)) * driftYaw;
     car.angle += steer * perf.handling * steerAmt * Math.sign(vF) * dt;
 
     car.x += car.vx * dt; car.z += car.vz * dt;
@@ -809,7 +846,7 @@
     $('resMenuBtn').textContent = MP.active ? 'Zur Lobby' : 'Strecke wählen';
     $('resMP').style.display = hasRivals() ? '' : 'none';
     if (hasRivals()) renderStandings();
-    $('resTrack').textContent = track.name;
+    $('resTrack').textContent = track.name + (track.mode === 'drift' ? ' · 💨 ' + Math.round(driftPts).toLocaleString('de-CH') + ' Drift-Punkte' : '');
     $('resTotal').innerHTML = fmt(r.total) + (r.newTotal ? ' <span class="badge">Rekord!</span>' : '');
     $('resLaps').innerHTML = lapTimes.map((t, i) =>
       `<div class="${t === r.best ? 'bestlap' : ''}">Runde ${i + 1}: ${fmt(t)}${t === r.best && r.newLap ? ' <span class="badge">Rekord!</span>' : ''}</div>`).join('');
@@ -863,6 +900,8 @@
 
   // ---------- Anzeige ----------
   function updateHud() {
+    $('driftRow').style.display = track.mode === 'drift' ? '' : 'none';
+    if (track.mode === 'drift') $('driftPts').textContent = Math.round(driftPts).toLocaleString('de-CH');
     if (hasRivals()) { const st = standings(); $('place').textContent = (st.findIndex(e => e.me) + 1) + ' / ' + st.length; }
     else $('place').textContent = '1 / 1';
     $('lap').textContent = Math.min(lap, lapsNeeded()) + ' / ' + lapsNeeded();
@@ -988,7 +1027,7 @@
   function renderCars() {
     const grid = $('carGrid');
     grid.innerHTML = '';
-    for (const v of CARS) {
+    for (const v of carsForMode(driveMode)) {
       const b = document.createElement('button');
       b.className = 'char vehicle' + (v.id === carCfg.id ? ' sel' : '');
       b.style.setProperty('--c', char.color);
@@ -1033,13 +1072,29 @@
   }
   $('botLevel').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { botLevel = +b.dataset.l; try { localStorage.setItem('rennspiel-botlevel', botLevel); } catch (e) {} renderBotSettings(); }));
 
+  const MODE_INFO = {
+    normal: 'Weiche Lenkung, flüssige Strecken – das normale Rennen.',
+    arcade: 'Lenkung sofort voll eingeschlagen, Strecken mit vielen engen Ecken.',
+    drift: 'Gas + starkes Lenken (oder kurz Bremsen) = Heck kommt. Lange Drifts geben Punkte und einen Boost.'
+  };
+  function setDriveMode(m) {
+    driveMode = m; window.DRIVE_MODE = m;
+    try { localStorage.setItem('rennspiel-drive', m); } catch (e) {}
+    const list = carsForMode(m);
+    if (!list.includes(carCfg)) setVehicle(list[0]);
+    renderMenu();
+    if (MP.active && MP.isHost && MP.renderLobbyTracks) MP.renderLobbyTracks();
+  }
+  document.querySelectorAll('#driveModes button').forEach(b => b.addEventListener('click', () => setDriveMode(b.dataset.m)));
   function renderMenu() {
+    document.querySelectorAll('#driveModes button').forEach(b => b.classList.toggle('active', b.dataset.m === driveMode));
+    $('driveInfo').textContent = MODE_INFO[driveMode];
     renderBotSettings();
     renderChars();
     renderCars();
     const grid = $('trackGrid');
     grid.innerHTML = '';
-    const sorted = TRACKS.slice().sort((a, b) => (a.difficulty || 2) - (b.difficulty || 2));
+    const sorted = TRACKS.filter(t => (t.mode || 'normal') === driveMode).sort((a, b) => (a.difficulty || 2) - (b.difficulty || 2));
     for (const t of sorted) {
       const th = THEMES[t.theme], rec = getRecord(t.id), d = DIFF[t.difficulty || 2];
       const card = document.createElement('button');
@@ -1393,7 +1448,7 @@
 
   // Für Tests und zum Ausprobieren in der Konsole
   window.__game = { get audio() { return audio; }, ensureAudio,
-    chooseTrack: id => chooseTrack(TRACKS.find(t => t.id === id)), get world() { return world; }, camera, renderer, car, keys,
+    chooseTrack: id => chooseTrack(TRACKS.find(t => t.id === id)), get world() { return world; }, get driftPts() { return driftPts; }, camera, renderer, car, keys,
     // Simuliert Sekunden ohne Bild (zum Testen)
     sim(sec, input) { Object.assign(keys, input || {}); for (let t = 0; t < sec; t += 1 / 60) update(1 / 60); },
     get phase() { return phase; }, togglePause, setAtm: a => { atmNow = world.setAtmosphere(a); weatherGrip = atmNow.grip; headlight.visible = atmNow.headlights || !!theme.night; $('wx').textContent = ATM_TEXT[atmNow.time] + (atmNow.weather !== 'clear' ? ' · ' + ATM_TEXT[atmNow.weather] : ''); return atmNow; }, tilt: () => ({ on: TILT.on, steer: tiltSteer }), setTilt, lapTimes: () => lapTimes, standings: () => standings()

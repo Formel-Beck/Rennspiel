@@ -13,6 +13,7 @@
 //   - Zwei Strassenteile müssen mind. Strassenbreite + 10 m auseinander sein
 //   - Ein Punkt mit 4. Wert 1 ([x, z, höhe, 1]) ist eine gewollt enge Bremskurve.
 //     Alle anderen Kurven werden auf mindestens 40 m Radius geglättet (minRadius).
+//   - mode = 'arcade' oder 'drift' (sonst normale Strecke): bestimmt Fahrgefühl und in welchem Modus sie erscheint
 //   - laps = Anzahl Runden
 //   - difficulty = Schwierigkeit: 1 = Leicht, 2 = Mittel, 3 = Schwer
 //   - items: true = ?-Boxen und Spezial-Boosts (itemRows = wo die Boxen stehen)
@@ -108,5 +109,38 @@ window.TRACKS = [
              [-370, -500, 24], [-500, -560, 20], [-630, -500, 17], [-740, -390, 14], [-790, -260, 12], [-780, -130, 11], [-700, -30, 14],
              [-600, 20, 18], [-500, -20, 22], [-400, -60, 24], [-300, -30, 22], [-200, -80, 20], [-90, -20, 18], [-20, 80, 15],
              [-90, 180, 12], [-220, 240, 10], [-370, 260, 8], [-520, 320, 6], [-640, 410, 5]]
+  },
+  // ===================== ARCADE-STRECKEN (abrupte Lenkung, enge Kurven) =====================
+  {
+    id: 'zickzack', name: 'Zickzack-Mesa', theme: 'desert', mode: 'arcade', width: 20, laps: 3, difficulty: 2, minRadius: 0,
+    info: 'Treppen aus rechtwinkligen Kurven, eine Haarnadel und Schikanen – nur mit schnellen Lenkbewegungen zu schaffen.',
+    patches: [{ surface: 'sanddrift', from: 0.47, to: 0.5 }],
+    points: [[-200, -130, 2], [-120, -130, 2], [-60, -130, 2], [-60, -80, 3], [-10, -80, 3], [-10, -30, 4], [40, -30, 4],
+             [40, 20, 5], [90, 20, 5], [90, 70, 6], [150, 70, 6], [180, 110, 6], [150, 150, 6], [90, 150, 6], [40, 120, 5],
+             [-10, 150, 4], [-60, 120, 3], [-110, 150, 3], [-170, 130, 2], [-210, 80, 2], [-180, 30, 2], [-215, -20, 2], [-230, -80, 2]]
+  },
+  {
+    id: 'labyrinth', name: 'Neon-Labyrinth', theme: 'city', mode: 'arcade', width: 18, laps: 3, difficulty: 3, minRadius: 0,
+    info: 'Ein Gewirr aus 90-Grad-Ecken zwischen den Hochhäusern. Wer zu spät einlenkt, landet in der Wand.',
+    patches: [{ surface: 'wet', from: 0.3, to: 0.33 }, { surface: 'wet', from: 0.7, to: 0.73 }],
+    points: [[-180, -140, 0], [-60, -140, 0], [-60, -90, 0], [-120, -90, 0], [-120, -40, 0], [-5, -40, 0], [-5, -140, 0],
+             [50, -140, 0], [50, -60, 0], [108, -60, 0], [108, -140, 0], [170, -140, 0], [170, 0, 0], [110, 0, 0], [110, 60, 0],
+             [170, 60, 0], [170, 140, 0], [60, 140, 0], [60, 80, 0], [0, 80, 0], [0, 140, 0], [-90, 140, 0], [-90, 60, 0],
+             [-150, 60, 0], [-150, 140, 0], [-210, 140, 0], [-210, -100, 0]]
+  },
+  // ===================== DRIFT-STRECKEN (breit, lange Kurven zum Durchdriften) =====================
+  {
+    id: 'touge', name: 'Touge-Drift', theme: 'mountains', mode: 'drift', width: 26, laps: 2, difficulty: 2, minRadius: 48,
+    info: 'Ein Bergpass mit langen, gleichmässigen Kurven: quer rein, mit Gas durchdriften, Drift-Boost holen.',
+    points: [[-230, 120, 10], [-250, 30, 13], [-230, -60, 16], [-170, -140, 19], [-80, -170, 22], [10, -150, 25], [100, -175, 28],
+             [190, -150, 30], [240, -80, 30], [210, -10, 28], [240, 60, 25], [200, 130, 22], [120, 150, 20], [60, 100, 18], [100, 40, 17],
+             [40, -40, 16], [-40, -60, 15], [-110, -10, 14], [-60, 60, 13], [-120, 130, 12], [-180, 160, 11]]
+  },
+  {
+    id: 'schneedrift', name: 'Schnee-Drift', theme: 'snow', mode: 'drift', width: 28, laps: 3, difficulty: 2, minRadius: 32,
+    info: 'Festgefahrener Schnee, weite Kehren und lange S-Kurven – hier gleitet man quer durch jede Biegung.',
+    points: [[-200, -60, 0], [-130, -120, 1], [-40, -110, 2], [30, -140, 3], [120, -130, 3], [190, -80, 3], [200, 0, 3],
+             [150, 50, 2], [90, 25, 2], [15, 75, 1], [80, 128, 1], [165, 118, 1], [215, 160, 0], [165, 215, 0], [65, 200, 0], [-10, 175, 0], [-60, 140, 0],
+             [-120, 170, 0], [-200, 140, 0], [-240, 70, 0], [-230, 0, 0]]
   }
 ];

@@ -140,7 +140,7 @@ window.MP = (() => {
       if (!infoWaiter) return;
       infoWaiter = null;
       api.active = true; api.isHost = true;
-      api.trackId = api.trackId || TRACKS[0].id;
+      api.trackId = api.trackId || (TRACKS.find(t => (t.mode || 'normal') === (window.DRIVE_MODE || 'normal')) || TRACKS[0]).id;
       api.players.set(api.myId, Object.assign({ id: api.myId }, api.getInfo()));
       subscribe([T('up/+')]);
       announce();
@@ -201,7 +201,9 @@ window.MP = (() => {
     const used = new Set(humans().map(p => p.char));
     const chars = CHARACTERS.filter(c => !used.has(c.id)).concat(CHARACTERS.filter(c => used.has(c.id)));
     for (let k = 0; k < api.botCount; k++) {
-      const ch = chars[k % chars.length], car = CARS[Math.floor(Math.random() * CARS.length)];
+      const mode = (TRACKS.find(t => t.id === api.trackId) || {}).mode || 'normal';
+      const pool = CARS.filter(c => (c.modes || ['normal']).includes(mode));
+      const ch = chars[k % chars.length], car = pool[Math.floor(Math.random() * pool.length)] || CARS[0];
       api.players.set('bot' + (k + 1), { id: 'bot' + (k + 1), name: '🤖 ' + ch.name, char: ch.id, car: car.id, bot: true });
     }
     broadcastLobby();
@@ -429,7 +431,10 @@ window.MP = (() => {
     // Strecke: Gastgeber wählt, die anderen sehen sie
     const tr = $('mpTracks');
     tr.innerHTML = '';
-    for (const t of TRACKS.slice().sort((a, b) => (a.difficulty || 2) - (b.difficulty || 2))) {
+    // nur Strecken des gewählten Fahrmodus (Gastgeber) bzw. des Modus der gewählten Strecke (Gäste)
+    const selMode = (TRACKS.find(x => x.id === api.trackId) || {}).mode || 'normal';
+    const showMode = api.isHost ? (window.DRIVE_MODE || 'normal') : selMode;
+    for (const t of TRACKS.filter(x => (x.mode || 'normal') === showMode).sort((a, b) => (a.difficulty || 2) - (b.difficulty || 2))) {
       const th = THEMES[t.theme];
       const b = document.createElement('button');
       b.className = 'mpTrack' + (t.id === api.trackId ? ' sel' : '');
@@ -469,10 +474,16 @@ window.MP = (() => {
     render();
     return raum.length === 4 ? raum : null;
   }
+  // Gastgeber hat den Fahrmodus gewechselt: passende Strecke wählen
+  function renderLobbyTracks() {
+    const mode = window.DRIVE_MODE || 'normal', cur = TRACKS.find(t => t.id === api.trackId);
+    if (api.isHost && (!cur || (cur.mode || 'normal') !== mode)) { const t = TRACKS.find(x => (x.mode || 'normal') === mode); if (t) chooseTrack(t.id); }
+    render();
+  }
   function myName() {
     const n = ($('mpName').value || '').trim().slice(0, 16);
     return n;
   }
 
-  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, sendEvent, setBots, botFinish, updateInfo, render, myName });
+  return Object.assign(api, { init, host, join, leave, startRace, endRace, sendFinish, sendHonk, sendEvent, setBots, botFinish, updateInfo, render, renderLobbyTracks, myName });
 })();
